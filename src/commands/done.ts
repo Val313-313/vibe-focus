@@ -1,9 +1,11 @@
 import { Command } from 'commander';
+import chalk from 'chalk';
 import { readState, writeState } from '../core/state.js';
 import { getActiveTask, updateTask, criteriaProgress } from '../core/task.js';
 import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
 import { now, elapsedMinutes, formatDuration } from '../utils/time.js';
 import { success, error, warn, info } from '../ui/output.js';
+import { getFlowMode, disableFlowSilent } from './flow.js';
 
 export const doneCommand = new Command('done')
   .description('Complete the current active task')
@@ -59,8 +61,30 @@ export const doneCommand = new Command('done')
     const score = calculateDailyScore(state);
     console.log(`  Focus score: ${score} (${scoreLabel(score)})`);
 
-    // Suggest next task
+    // Check flow mode
+    const flowMode = getFlowMode();
     const backlog = state.tasks.filter((t) => t.status === 'backlog');
+
+    if (flowMode === 'task') {
+      // Task-scoped flow: auto-disable
+      disableFlowSilent();
+      console.log('');
+      console.log(chalk.yellow('  Flow mode auto-disabled (task completed).'));
+      info('Restart Claude Code to apply. Re-enable with: vf flow --on');
+    } else if (flowMode === 'super') {
+      // Superflow: check if all tasks are done
+      if (backlog.length === 0) {
+        disableFlowSilent();
+        console.log('');
+        console.log(chalk.cyanBright('  Superflow auto-disabled (all tasks done).'));
+        info('Restart Claude Code to apply.');
+      } else {
+        console.log('');
+        console.log(chalk.cyan(`  Superflow active: ${backlog.length} task${backlog.length > 1 ? 's' : ''} remaining.`));
+      }
+    }
+
+    // Suggest next task
     if (backlog.length > 0) {
       console.log('');
       info('Next up in backlog:');

@@ -77,6 +77,9 @@ try {
     "",
     "IMPORTANT: Even if the user's question seems quick or related, if it's a DIFFERENT concern",
     "than \\"" + task.title + "\\", it MUST be parked as a note. No exceptions. No \\"quickly checking\\".",
+    "",
+    "SAFETY: Even in flow/superflow mode, always review before destructive operations.",
+    "Think twice before: deleting files, force-pushing, dropping data, overwriting config.",
     scopeWarning,
   ].join("\\n");
 

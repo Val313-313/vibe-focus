@@ -12,7 +12,7 @@ import { scopeCommand } from './commands/scope.js';
 import { promptCommand } from './commands/prompt.js';
 import { dashCommand } from './commands/dash.js';
 import { guardCommand } from './commands/guard.js';
-import { flowCommand } from './commands/flow.js';
+import { flowCommand, superflowCommand } from './commands/flow.js';
 import { noteCommand } from './commands/note.js';
 
 const program = new Command();
@@ -36,6 +36,7 @@ program.addCommand(promptCommand);
 program.addCommand(dashCommand);
 program.addCommand(guardCommand);
 program.addCommand(flowCommand);
+program.addCommand(superflowCommand);
 program.addCommand(noteCommand);
 // Default to status when no command given
 program.action(() => {
