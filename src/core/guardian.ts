@@ -40,7 +40,7 @@ export function evaluateSwitch(
       allowed: false,
       severity: 'block',
       message: `Du hast heute schon ${switches}x den Task gewechselt. Das ist genau das Context-Collapse-Pattern das vibe-focus verhindern soll.`,
-      suggestion: 'Pick EINEN Task und mach ihn fertig. Nutze "vf add" um neue Ideen zu speichern.',
+      suggestion: 'Pick EINEN Task und mach ihn fertig. Nutze "vf note" um neue Ideen zu parken.',
       overrideFlag: '--yolo',
     };
   }

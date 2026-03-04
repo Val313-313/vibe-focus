@@ -29,7 +29,11 @@ export function getStateDir(): string {
 export function readState(): VibeFocusState {
   const filePath = getStatePath();
   const raw = fs.readFileSync(filePath, 'utf-8');
-  return JSON.parse(raw) as VibeFocusState;
+  const state = JSON.parse(raw) as VibeFocusState;
+  // Backwards compat: add notes if missing
+  if (!state.notes) state.notes = [];
+  if (!state.nextNoteNumber) state.nextNoteNumber = 1;
+  return state;
 }
 
 export function writeState(state: VibeFocusState): void {
@@ -53,6 +57,8 @@ export function createEmptyState(projectName: string): VibeFocusState {
     activeTaskId: null,
     nextTaskNumber: 1,
     tasks: [],
+    notes: [],
+    nextNoteNumber: 1,
     currentSession: null,
     focusEvents: [],
   };

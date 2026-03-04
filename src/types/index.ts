@@ -29,6 +29,15 @@ export interface ProjectScope {
   outOfScope: string[];
 }
 
+export interface Note {
+  id: string;
+  text: string;
+  capturedDuring: string | null;  // task ID that was active when note was captured
+  createdAt: string;
+  promoted: boolean;              // true if promoted to a task
+  promotedToTaskId: string | null;
+}
+
 export interface FocusEvent {
   type: 'start' | 'complete' | 'abandon' | 'switch_away' | 'switch_to' | 'pushback_override';
   taskId: string;
@@ -49,6 +58,8 @@ export interface VibeFocusState {
   activeTaskId: string | null;
   nextTaskNumber: number;
   tasks: Task[];
+  notes: Note[];
+  nextNoteNumber: number;
   currentSession: FocusSession | null;
   focusEvents: FocusEvent[];
 }

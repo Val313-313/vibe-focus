@@ -56,6 +56,9 @@ try {
     scopeWarning = "\\n\\nOUT OF SCOPE (refuse these): " + state.projectScope.outOfScope.join(', ');
   }
 
+  const noteCount = (state.notes || []).filter(n => !n.promoted).length;
+  const noteInfo = noteCount > 0 ? "\\nPARKED NOTES: " + noteCount + " ideas saved for later (vf note --list)" : "";
+
   const context = [
     "VIBE FOCUS ACTIVE - STRICT MODE",
     "",
@@ -63,12 +66,17 @@ try {
     "PROGRESS: " + metCount + "/" + totalCount + " criteria met",
     "",
     unmetCriteria ? "REMAINING CRITERIA:\\n" + unmetCriteria : "ALL CRITERIA MET - run: vf done",
+    noteInfo,
     "",
     "ENFORCEMENT: Before responding, verify the user's request relates to this task.",
     "If it does NOT relate to \\"" + task.title + "\\":",
-    "  1. STOP and remind them of the current task",
-    "  2. Suggest: vf add \\"their idea\\" to save it for later",
-    "  3. Ask: \\"Shall we stay focused on " + task.title + "?\\"",
+    "  1. STOP immediately. Do NOT start working on the unrelated request.",
+    "  2. Tell the user: \\"That's not part of the current task. Let me park it.\\"",
+    "  3. Run: vf note \\"<their idea summarized>\\"",
+    "  4. Then redirect: \\"Back to " + task.title + " - here's what we still need to do:\\"",
+    "",
+    "IMPORTANT: Even if the user's question seems quick or related, if it's a DIFFERENT concern",
+    "than \\"" + task.title + "\\", it MUST be parked as a note. No exceptions. No \\"quickly checking\\".",
     scopeWarning,
   ].join("\\n");
 
