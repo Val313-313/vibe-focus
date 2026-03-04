@@ -14,8 +14,6 @@ import { dashCommand } from './commands/dash.js';
 import { guardCommand } from './commands/guard.js';
 import { flowCommand } from './commands/flow.js';
 import { noteCommand } from './commands/note.js';
-import { watchCommand } from './commands/watch.js';
-import { splitCommand } from './commands/split.js';
 
 const program = new Command();
 
@@ -39,9 +37,6 @@ program.addCommand(dashCommand);
 program.addCommand(guardCommand);
 program.addCommand(flowCommand);
 program.addCommand(noteCommand);
-program.addCommand(watchCommand);
-program.addCommand(splitCommand);
-
 // Default to status when no command given
 program.action(() => {
   try {
