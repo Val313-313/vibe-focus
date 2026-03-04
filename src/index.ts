@@ -12,6 +12,7 @@ import { scopeCommand } from './commands/scope.js';
 import { promptCommand } from './commands/prompt.js';
 import { dashCommand } from './commands/dash.js';
 import { guardCommand } from './commands/guard.js';
+import { flowCommand } from './commands/flow.js';
 
 const program = new Command();
 
@@ -33,6 +34,7 @@ program.addCommand(scopeCommand);
 program.addCommand(promptCommand);
 program.addCommand(dashCommand);
 program.addCommand(guardCommand);
+program.addCommand(flowCommand);
 
 // Default to status when no command given
 program.action(() => {
