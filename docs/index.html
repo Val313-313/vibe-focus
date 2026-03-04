@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vibe-focus -- Stop context collapse. Ship one thing at a time.</title>
+  <meta name="description" content="Focus Guardian CLI for vibe coding sessions. Prevents context collapse when working with AI coding agents like Claude Code.">
+  <meta name="keywords" content="vibe coding, focus, CLI, Claude Code, AI coding, context switching, developer tools">
+  <meta property="og:title" content="vibe-focus">
+  <meta property="og:description" content="Stop context collapse. Ship one thing at a time.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    /* ========================================
+       RESET & BASE
+       ======================================== */
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --green: #00ff41;
+      --green-dim: #00cc33;
+      --green-dark: #009922;
+      --green-glow: rgba(0, 255, 65, 0.4);
+      --green-faint: rgba(0, 255, 65, 0.08);
+      --green-subtle: rgba(0, 255, 65, 0.15);
+      --bg: #0a0a0a;
+      --bg-light: #111111;
+      --bg-card: #0d0d0d;
+      --border: #1a1a1a;
+      --border-green: rgba(0, 255, 65, 0.2);
+      --text: #b0b0b0;
+      --text-bright: #e0e0e0;
+      --red: #ff4444;
+      --yellow: #ffcc00;
+      --cyan: #00ccff;
+      --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', monospace;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: var(--font);
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      font-size: 14px;
+      overflow-x: hidden;
+    }
+
+    /* ========================================
+       CRT SCANLINE OVERLAY
+       ======================================== */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 9999;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.08) 2px,
+        rgba(0, 0, 0, 0.08) 4px
+      );
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 9998;
+      background: radial-gradient(
+        ellipse at center,
+        transparent 60%,
+        rgba(0, 0, 0, 0.4) 100%
+      );
+    }
+
+    /* ========================================
+       SELECTIONS
+       ======================================== */
+    ::selection {
+      background: var(--green);
+      color: var(--bg);
+    }
+
+    /* ========================================
+       SCROLLBAR
+       ======================================== */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--green-dark);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--green-dim);
+    }
+
+    /* ========================================
+       LAYOUT
+       ======================================== */
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section {
+      padding: 80px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    section:last-of-type {
+      border-bottom: none;
+    }
+
+    /* ========================================
+       HEADINGS
+       ======================================== */
+    .section-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 4px;
+      color: var(--green-dim);
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .section-label::before {
+      content: '// ';
+      color: var(--green-dark);
+    }
+
+    h2 {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--green);
+      margin-bottom: 16px;
+      text-shadow: 0 0 20px var(--green-glow);
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--green);
+      margin-bottom: 8px;
+    }
+
+    .section-desc {
+      font-size: 15px;
+      color: var(--text);
+      max-width: 640px;
+      line-height: 1.7;
+      margin-bottom: 40px;
+    }
+
+    /* ========================================
+       HERO SECTION
+       ======================================== */
+    .hero {
+      padding: 100px 0 80px;
+      text-align: center;
+      position: relative;
+    }
+
+    .ascii-art {
+      font-size: 10px;
+      line-height: 1.15;
+      color: var(--green);
+      white-space: pre;
+      display: inline-block;
+      text-align: left;
+      text-shadow:
+        0 0 10px var(--green-glow),
+        0 0 40px rgba(0, 255, 65, 0.15);
+      animation: flicker 4s ease-in-out infinite;
+      margin-bottom: 24px;
+    }
+
+    @media (min-width: 640px) {
+      .ascii-art {
+        font-size: 13px;
+      }
+    }
+
+    @keyframes flicker {
+      0%, 100% { opacity: 1; }
+      92% { opacity: 1; }
+      93% { opacity: 0.8; }
+      94% { opacity: 1; }
+      96% { opacity: 0.9; }
+      97% { opacity: 1; }
+    }
+
+    .tagline {
+      font-size: 18px;
+      color: var(--text-bright);
+      margin-bottom: 8px;
+      font-weight: 300;
+    }
+
+    .tagline-sub {
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 32px;
+    }
+
+    .install-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-light);
+      border: 1px solid var(--border-green);
+      border-radius: 6px;
+      padding: 12px 20px;
+      margin-bottom: 24px;
+      position: relative;
+      cursor: pointer;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .install-box:hover {
+      border-color: var(--green-dim);
+      box-shadow: 0 0 20px rgba(0, 255, 65, 0.1);
+    }
+
+    .install-box .prompt {
+      color: var(--green-dim);
+      user-select: none;
+    }
+
+    .install-box code {
+      color: var(--text-bright);
+      font-family: var(--font);
+      font-size: 15px;
+    }
+
+    .install-box .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .install-box .copy-btn:hover {
+      border-color: var(--green-dim);
+      color: var(--green);
+    }
+
+    .hero-links {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .hero-links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.3s;
+    }
+
+    .btn-primary {
+      background: var(--green);
+      color: var(--bg);
+      box-shadow: 0 0 20px rgba(0, 255, 65, 0.2);
+    }
+
+    .btn-primary:hover {
+      background: var(--green-dim);
+      box-shadow: 0 0 30px rgba(0, 255, 65, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .btn-ghost {
+      border: 1px solid var(--border-green);
+      color: var(--green);
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--green-dim);
+      background: var(--green-faint);
+      transform: translateY(-1px);
+    }
+
+    /* ========================================
+       THE PROBLEM SECTION
+       ======================================== */
+    .problem-block {
+      background: var(--bg-light);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--red);
+      border-radius: 6px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .problem-block p {
+      color: var(--text);
+      line-height: 1.8;
+      font-size: 14px;
+    }
+
+    .problem-block strong {
+      color: var(--text-bright);
+    }
+
+    .problem-block .highlight-red {
+      color: var(--red);
+      font-weight: 600;
+    }
+
+    .solution-block {
+      background: var(--bg-light);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--green);
+      border-radius: 6px;
+      padding: 24px;
+    }
+
+    .solution-block p {
+      color: var(--text);
+      line-height: 1.8;
+      font-size: 14px;
+    }
+
+    .solution-block strong {
+      color: var(--green);
+    }
+
+    /* ========================================
+       FEATURES GRID
+       ======================================== */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 24px;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--green-dark), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .feature-card:hover {
+      border-color: var(--border-green);
+      box-shadow: 0 0 30px rgba(0, 255, 65, 0.05);
+      transform: translateY(-2px);
+    }
+
+    .feature-card:hover::before {
+      opacity: 1;
+    }
+
+    .feature-icon {
+      font-size: 20px;
+      margin-bottom: 12px;
+      display: block;
+      color: var(--green);
+      font-weight: 700;
+      text-shadow: 0 0 10px var(--green-glow);
+    }
+
+    .feature-card h3 {
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .feature-card p {
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* ========================================
+       HOW IT WORKS
+       ======================================== */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 40px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .step-number {
+      width: 48px;
+      height: 48px;
+      border: 2px solid var(--green-dark);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--green);
+      flex-shrink: 0;
+      text-shadow: 0 0 10px var(--green-glow);
+    }
+
+    .step-content h3 {
+      font-size: 16px;
+      margin-bottom: 4px;
+    }
+
+    .step-content p {
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+
+    /* ========================================
+       TERMINAL CODE BLOCKS
+       ======================================== */
+    .terminal {
+      background: #050505;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 16px 0;
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: #111;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red { background: #ff5f57; }
+    .terminal-dot.yellow { background: #febc2e; }
+    .terminal-dot.green { background: #28c840; }
+
+    .terminal-title {
+      font-size: 11px;
+      color: #555;
+      margin-left: 8px;
+    }
+
+    .terminal-body {
+      padding: 16px 20px;
+      overflow-x: auto;
+    }
+
+    .terminal-body pre {
+      margin: 0;
+      font-family: var(--font);
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text);
+    }
+
+    .terminal-body .cmd {
+      color: var(--green);
+    }
+
+    .terminal-body .prompt-char {
+      color: var(--green-dim);
+      user-select: none;
+    }
+
+    .terminal-body .comment {
+      color: #555;
+    }
+
+    .terminal-body .string {
+      color: var(--yellow);
+    }
+
+    .terminal-body .flag {
+      color: var(--cyan);
+    }
+
+    .terminal-body .output {
+      color: var(--text);
+    }
+
+    .terminal-body .bright {
+      color: var(--text-bright);
+    }
+
+    .terminal-body .green-text {
+      color: var(--green);
+    }
+
+    .terminal-body .red-text {
+      color: var(--red);
+    }
+
+    .terminal-body .yellow-text {
+      color: var(--yellow);
+    }
+
+    .terminal-body .cyan-text {
+      color: var(--cyan);
+    }
+
+    .terminal-body .dim {
+      color: #444;
+    }
+
+    /* ========================================
+       DASHBOARD MOCKUP
+       ======================================== */
+    .dashboard-mockup .terminal {
+      border-color: var(--border-green);
+      box-shadow: 0 0 40px rgba(0, 255, 65, 0.06);
+    }
+
+    .dashboard-mockup .terminal-body pre {
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    /* ========================================
+       INSTALL / QUICK START
+       ======================================== */
+    .quickstart-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+
+    @media (min-width: 640px) {
+      .quickstart-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .quickstart-grid .terminal {
+      margin: 0;
+    }
+
+    /* ========================================
+       COMMAND TABLE
+       ======================================== */
+    .commands-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 24px;
+    }
+
+    .commands-table th {
+      text-align: left;
+      padding: 10px 16px;
+      border-bottom: 2px solid var(--border-green);
+      color: var(--green);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .commands-table td {
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .commands-table tr:hover td {
+      background: var(--green-faint);
+    }
+
+    .commands-table code {
+      color: var(--green);
+      font-family: var(--font);
+      font-size: 12px;
+    }
+
+    .commands-table td:last-child {
+      color: var(--text);
+    }
+
+    /* ========================================
+       FOOTER
+       ======================================== */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .footer-links a {
+      color: var(--text);
+      text-decoration: none;
+      font-size: 12px;
+      transition: color 0.2s;
+    }
+
+    .footer-links a:hover {
+      color: var(--green);
+    }
+
+    .footer-sig {
+      font-size: 11px;
+      color: #444;
+    }
+
+    .footer-sig .cursor {
+      display: inline-block;
+      width: 7px;
+      height: 14px;
+      background: var(--green);
+      margin-left: 4px;
+      animation: blink 1s step-end infinite;
+      vertical-align: text-bottom;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    /* ========================================
+       GLOW PULSE ON SECTION HEADERS
+       ======================================== */
+    @keyframes glow-pulse {
+      0%, 100% { text-shadow: 0 0 20px var(--green-glow); }
+      50% { text-shadow: 0 0 40px var(--green-glow), 0 0 60px rgba(0, 255, 65, 0.15); }
+    }
+
+    h2 {
+      animation: glow-pulse 3s ease-in-out infinite;
+    }
+
+    /* ========================================
+       GUARDIAN BOX (blocked messages)
+       ======================================== */
+    .guardian-box {
+      border: 1px solid var(--red);
+      border-radius: 6px;
+      padding: 16px 20px;
+      background: rgba(255, 68, 68, 0.04);
+      margin: 12px 0;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text);
+    }
+
+    .guardian-box .guardian-title {
+      color: var(--red);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    /* ========================================
+       COPY TOAST
+       ======================================== */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--green);
+      color: var(--bg);
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 600;
+      z-index: 10000;
+      pointer-events: none;
+      transition: transform 0.3s ease;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ========================================
+       RESPONSIVE
+       ======================================== */
+    @media (max-width: 600px) {
+      .ascii-art {
+        font-size: 6px;
+      }
+
+      section {
+        padding: 48px 0;
+      }
+
+      .hero {
+        padding: 60px 0 48px;
+      }
+
+      h2 {
+        font-size: 22px;
+      }
+
+      .step {
+        grid-template-columns: 1fr;
+      }
+
+      .step-number {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+      }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .install-box {
+        flex-direction: column;
+        gap: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ==================== HERO ==================== -->
+  <section class="hero">
+    <div class="container">
+      <div class="ascii-art" aria-label="VIBE FOCUS">
+██╗   ██╗██╗██████╗ ███████╗    ███████╗ ██████╗  ██████╗██╗   ██╗███████╗
+██║   ██║██║██╔══██╗██╔════╝    ██╔════╝██╔═══██╗██╔════╝██║   ██║██╔════╝
+██║   ██║██║██████╔╝█████╗      █████╗  ██║   ██║██║     ██║   ██║███████╗
+╚██╗ ██╔╝██║██╔══██╗██╔══╝      ██╔══╝  ██║   ██║██║     ██║   ██║╚════██║
+ ╚████╔╝ ██║██████╔╝███████╗    ██║     ╚██████╔╝╚██████╗╚██████╔╝███████║
+  ╚═══╝  ╚═╝╚═════╝ ╚══════╝    ╚═╝      ╚═════╝  ╚═════╝ ╚═════╝ ╚══════╝</div>
+
+      <p class="tagline">Stop context collapse. Ship one thing at a time.</p>
+      <p class="tagline-sub">Focus Guardian CLI for vibe coding sessions with AI agents</p>
+
+      <div class="install-box" onclick="copyInstall()" title="Click to copy">
+        <span class="prompt">$</span>
+        <code>npm install -g vibe-focus</code>
+        <button class="copy-btn" id="copyBtn">copy</button>
+      </div>
+
+      <br><br>
+
+      <div class="hero-links">
+        <a href="https://github.com/Val313-313/philstranger-vibe-focus" class="btn-primary" target="_blank" rel="noopener">
+          &gt; View on GitHub
+        </a>
+        <a href="https://www.npmjs.com/package/vibe-focus" class="btn-ghost" target="_blank" rel="noopener">
+          &gt; npm package
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== THE PROBLEM ==================== -->
+  <section id="problem">
+    <div class="container">
+      <span class="section-label">the problem</span>
+      <h2>Context Collapse</h2>
+
+      <div class="problem-block">
+        <p>
+          You're vibe coding with Claude Code. You start on <strong>user authentication</strong>.
+          Twenty minutes in, you notice the API error handling could be better. You "quickly" refactor that.
+          Then you spot a CSS issue. Before you know it, you've touched <strong>15 files across 4 different concerns</strong>,
+          your context window is bloated, and Claude starts hallucinating because it lost track of what you're actually building.
+        </p>
+        <br>
+        <p>
+          <span class="highlight-red">This is context collapse.</span> And it kills vibe coding sessions.
+        </p>
+      </div>
+
+      <br>
+
+      <div class="solution-block">
+        <p>
+          <strong>vibe-focus</strong> is a Focus Guardian CLI that sits next to your AI coding agent
+          and enforces single-task discipline. Define your scope. Break work into focused tasks with
+          acceptance criteria. Get pushed back when you try to context-switch before finishing.
+          Track your focus score to build better habits.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== FEATURES ==================== -->
+  <section id="features">
+    <div class="container">
+      <span class="section-label">features</span>
+      <h2>What's Inside</h2>
+      <p class="section-desc">
+        Everything you need to stay in the zone and stop your AI agent from going rogue.
+      </p>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <span class="feature-icon">[!]</span>
+          <h3>Focus Guardian</h3>
+          <p>
+            Pushes back when you try to switch tasks before finishing.
+            Blocks context-switching with friction, not force.
+            Override with <code>--force</code> or <code>--yolo</code> -- but you'll see the score hit.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">{&nbsp;}</span>
+          <h3>Project Scope</h3>
+          <p>
+            Define what's in and what's out before you start.
+            Try to add a task outside scope? Blocked.
+            Keeps both you and your AI agent on the rails.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">[x]</span>
+          <h3>Acceptance Criteria</h3>
+          <p>
+            Every task gets clear, checkable criteria.
+            No more "I think it's done?" -- you know exactly when to stop.
+            Claude uses these as its definition of done.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&lt;/&gt;</span>
+          <h3>Claude Code Hooks</h3>
+          <p>
+            <code>vf guard --install</code> hooks directly into Claude Code.
+            Every prompt gets checked against your active task.
+            Focus rules are injected as system context automatically.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">[=]</span>
+          <h3>Interactive Dashboard</h3>
+          <p>
+            Full TUI dashboard with keyboard navigation.
+            Navigate tasks, check criteria, copy focused prompts,
+            and force switches -- all from the terminal.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">%</span>
+          <h3>Focus Score</h3>
+          <p>
+            Daily score from 0-100 tracking your focus habits.
+            +20 for completing a task, -10 for switching, -5 for overriding.
+            Build better habits over time.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== HOW IT WORKS ==================== -->
+  <section id="how-it-works">
+    <div class="container">
+      <span class="section-label">how it works</span>
+      <h2>Four Steps to Focus</h2>
+      <p class="section-desc">
+        Initialize, scope, task, ship. Repeat.
+      </p>
+
+      <div class="steps">
+        <!-- Step 1 -->
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h3>Define Your Scope</h3>
+            <p>Tell vibe-focus what you're building and what's off-limits.</p>
+
+            <div class="terminal">
+              <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">~/my-project</span>
+              </div>
+              <div class="terminal-body">
+<pre><span class="prompt-char">$ </span><span class="cmd">vf init</span>
+<span class="output">Initialized vibe-focus in ~/my-project/.vibe-focus/</span>
+
+<span class="prompt-char">$ </span><span class="cmd">vf scope</span> <span class="flag">--purpose</span> <span class="string">"E-commerce checkout flow"</span> \
+         <span class="flag">--in</span> <span class="string">"Cart"</span> <span class="string">"Payment"</span> <span class="string">"Order confirmation"</span> \
+         <span class="flag">--out</span> <span class="string">"Product catalog"</span> <span class="string">"User profiles"</span> <span class="string">"Admin panel"</span>
+<span class="output">Scope defined. 3 in-scope areas, 3 out-of-scope areas.</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h3>Add Tasks with Criteria</h3>
+            <p>Break your work into focused chunks with clear acceptance criteria.</p>
+
+            <div class="terminal">
+              <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">~/my-project</span>
+              </div>
+              <div class="terminal-body">
+<pre><span class="prompt-char">$ </span><span class="cmd">vf add</span> <span class="string">"Implement cart total calculation"</span> \
+       <span class="flag">-c</span> <span class="string">"Sum line items"</span> \
+       <span class="flag">-c</span> <span class="string">"Apply discounts"</span> \
+       <span class="flag">-c</span> <span class="string">"Tax calculation"</span>
+<span class="output">Added task <span class="green-text">t1</span> with 3 criteria.</span>
+
+<span class="prompt-char">$ </span><span class="cmd">vf start</span> <span class="bright">t1</span>
+<span class="output">Started task <span class="green-text">t1</span>: Implement cart total calculation</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h3>Get Pushed Back</h3>
+            <p>The guardian keeps you honest. Try to deviate and it will block you.</p>
+
+            <div class="terminal">
+              <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">~/my-project</span>
+              </div>
+              <div class="terminal-body">
+<pre><span class="prompt-char">$ </span><span class="cmd">vf switch</span> <span class="bright">t2</span>
+<span class="red-text">
+  FOCUS GUARDIAN -- BLOCKED
+
+  You're 67% done with "Cart total calculation".
+  Only 1 criterion left!
+
+  Finish it. You're almost there.
+  Override: --force</span>
+
+<span class="comment"># Complete your criteria instead:</span>
+<span class="prompt-char">$ </span><span class="cmd">vf check</span> <span class="bright">t1-c3</span>
+<span class="output">Checked: Tax calculation <span class="green-text">[3/3 complete]</span></span>
+
+<span class="prompt-char">$ </span><span class="cmd">vf done</span>
+<span class="green-text">Task t1 completed! Focus score: +20</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h3>Install Claude Code Hooks</h3>
+            <p>The killer feature. Claude Code will enforce your focus automatically on every prompt.</p>
+
+            <div class="terminal">
+              <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">~/my-project</span>
+              </div>
+              <div class="terminal-body">
+<pre><span class="prompt-char">$ </span><span class="cmd">vf guard</span> <span class="flag">--install</span>
+<span class="green-text">Focus guardian hooks installed for Claude Code.</span>
+<span class="output">Claude will now enforce your active task on every prompt.</span>
+
+<span class="prompt-char">$ </span><span class="cmd">vf guard</span> <span class="flag">--status</span>
+<span class="output">Guard: <span class="green-text">ACTIVE</span></span>
+<span class="output">Mode:  <span class="bright">strict</span></span>
+<span class="output">Task:  <span class="bright">t2 - Payment integration</span></span>
+
+<span class="comment"># What Claude sees on every prompt:</span>
+<span class="dim">VIBE FOCUS ACTIVE - STRICT MODE
+CURRENT TASK: t2 - Payment integration
+REMAINING CRITERIA:
+  - Stripe API integration
+  - Error handling for failed charges
+ENFORCEMENT: If request does NOT relate
+  to this task -> STOP, REMIND, REDIRECT</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== DASHBOARD MOCKUP ==================== -->
+  <section id="dashboard" class="dashboard-mockup">
+    <div class="container">
+      <span class="section-label">dashboard</span>
+      <h2>vf dash</h2>
+      <p class="section-desc">
+        Interactive TUI dashboard. Navigate tasks, check criteria, and stay on track.
+      </p>
+
+      <div class="terminal">
+        <div class="terminal-header">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+          <span class="terminal-title">vf dash -- vibe-focus v0.1.0</span>
+        </div>
+        <div class="terminal-body">
+<pre>
+<span class="dim">===========================================================</span>
+<span class="green-text">  VIBE FOCUS DASHBOARD</span>            <span class="dim">Focus Score:</span> <span class="green-text">85/100</span> <span class="green-text">Good Focus</span>
+<span class="dim">===========================================================</span>
+
+<span class="dim">PROJECT:</span> <span class="bright">E-commerce checkout flow</span>
+<span class="dim">SCOPE:</span>   <span class="green-text">Cart</span> <span class="dim">|</span> <span class="green-text">Payment</span> <span class="dim">|</span> <span class="green-text">Order confirmation</span>
+
+<span class="dim">-----------------------------------------------------------</span>
+<span class="dim"> TASKS                              STATUS        PROGRESS</span>
+<span class="dim">-----------------------------------------------------------</span>
+  <span class="dim">t1</span>  Cart total calculation         <span class="green-text">DONE</span>          <span class="green-text">[###]</span> 3/3
+<span class="bright">&gt; <span class="yellow-text">t2</span>  Payment integration            <span class="yellow-text">ACTIVE</span>        <span class="yellow-text">[##-]</span> 2/3</span>
+  <span class="dim">t3</span>  Order confirmation page        <span class="dim">PENDING</span>       <span class="dim">[---]</span> 0/2
+  <span class="dim">t4</span>  Email receipt                  <span class="dim">PENDING</span>       <span class="dim">[---]</span> 0/2
+
+<span class="dim">-----------------------------------------------------------</span>
+<span class="dim"> CRITERIA for t2: Payment integration</span>
+<span class="dim">-----------------------------------------------------------</span>
+  <span class="green-text">[x]</span> t2-c1  Stripe API integration
+  <span class="green-text">[x]</span> t2-c2  Payment form UI
+<span class="bright">&gt; <span class="yellow-text">[ ]</span> t2-c3  Error handling for failed charges</span>
+
+<span class="dim">-----------------------------------------------------------</span>
+<span class="dim"> TODAY: 2 tasks completed | 0 switches | Score: 85</span>
+<span class="dim">-----------------------------------------------------------</span>
+<span class="dim"> [Enter] Start  [Space] Check  [d] Done  [p] Prompt  [q] Quit</span>
+</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== QUICK START ==================== -->
+  <section id="install">
+    <div class="container">
+      <span class="section-label">quick start</span>
+      <h2>Get Started in 60 Seconds</h2>
+      <p class="section-desc">
+        Install globally, initialize in your project, and start focusing.
+      </p>
+
+      <div class="quickstart-grid">
+        <div class="terminal">
+          <div class="terminal-header">
+            <span class="terminal-dot red"></span>
+            <span class="terminal-dot yellow"></span>
+            <span class="terminal-dot green"></span>
+            <span class="terminal-title">install</span>
+          </div>
+          <div class="terminal-body">
+<pre><span class="comment"># Install globally</span>
+<span class="prompt-char">$ </span><span class="cmd">npm install -g vibe-focus</span>
+
+<span class="comment"># Initialize in your project</span>
+<span class="prompt-char">$ </span><span class="cmd">cd</span> <span class="bright">your-project</span>
+<span class="prompt-char">$ </span><span class="cmd">vf init</span>
+
+<span class="comment"># Define scope</span>
+<span class="prompt-char">$ </span><span class="cmd">vf scope</span> <span class="flag">--purpose</span> <span class="string">"Build a REST API"</span> \
+         <span class="flag">--in</span> <span class="string">"endpoints"</span> <span class="string">"auth"</span> \
+         <span class="flag">--out</span> <span class="string">"frontend"</span> <span class="string">"deploy"</span></pre>
+          </div>
+        </div>
+
+        <div class="terminal">
+          <div class="terminal-header">
+            <span class="terminal-dot red"></span>
+            <span class="terminal-dot yellow"></span>
+            <span class="terminal-dot green"></span>
+            <span class="terminal-title">workflow</span>
+          </div>
+          <div class="terminal-body">
+<pre><span class="comment"># Add a task</span>
+<span class="prompt-char">$ </span><span class="cmd">vf add</span> <span class="string">"User registration"</span> \
+       <span class="flag">-c</span> <span class="string">"POST /register"</span> \
+       <span class="flag">-c</span> <span class="string">"Email validation"</span> \
+       <span class="flag">-c</span> <span class="string">"Password hashing"</span>
+
+<span class="comment"># Start, work, check, done</span>
+<span class="prompt-char">$ </span><span class="cmd">vf start</span> <span class="bright">t1</span>
+<span class="prompt-char">$ </span><span class="cmd">vf check</span> <span class="bright">t1-c1</span>
+<span class="prompt-char">$ </span><span class="cmd">vf check</span> <span class="bright">t1-c2</span>
+<span class="prompt-char">$ </span><span class="cmd">vf check</span> <span class="bright">t1-c3</span>
+<span class="prompt-char">$ </span><span class="cmd">vf done</span>
+
+<span class="comment"># Activate Claude Code enforcement</span>
+<span class="prompt-char">$ </span><span class="cmd">vf guard</span> <span class="flag">--install</span></pre>
+          </div>
+        </div>
+      </div>
+
+      <br><br>
+
+      <span class="section-label">all commands</span>
+      <h2 style="font-size: 20px; margin-top: 8px;">Command Reference</h2>
+
+      <table class="commands-table">
+        <thead>
+          <tr>
+            <th>Command</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>vf init</code></td><td>Initialize vibe-focus in your project</td></tr>
+          <tr><td><code>vf scope</code></td><td>Define or view project scope</td></tr>
+          <tr><td><code>vf add "task" -c "criteria"</code></td><td>Add a task with acceptance criteria</td></tr>
+          <tr><td><code>vf start &lt;id&gt;</code></td><td>Start working on a task</td></tr>
+          <tr><td><code>vf check &lt;criterion-id&gt;</code></td><td>Mark a criterion as met</td></tr>
+          <tr><td><code>vf done</code></td><td>Complete the current task</td></tr>
+          <tr><td><code>vf status</code></td><td>Show focus dashboard</td></tr>
+          <tr><td><code>vf list</code></td><td>List all tasks</td></tr>
+          <tr><td><code>vf switch &lt;id&gt;</code></td><td>Switch task (guardian pushback!)</td></tr>
+          <tr><td><code>vf abandon</code></td><td>Abandon current task</td></tr>
+          <tr><td><code>vf prompt</code></td><td>Generate focused prompt for Claude Code</td></tr>
+          <tr><td><code>vf scope --rules</code></td><td>Write focus rules to .claude/rules/</td></tr>
+          <tr><td><code>vf guard --install</code></td><td>Install Claude Code enforcement hooks</td></tr>
+          <tr><td><code>vf guard --status</code></td><td>Check if guard is active</td></tr>
+          <tr><td><code>vf guard --remove</code></td><td>Remove Claude Code hooks</td></tr>
+          <tr><td><code>vf dash</code></td><td>Interactive TUI dashboard</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ==================== FOOTER ==================== -->
+  <footer>
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/Val313-313/philstranger-vibe-focus" target="_blank" rel="noopener">&gt; GitHub</a>
+        <a href="https://www.npmjs.com/package/vibe-focus" target="_blank" rel="noopener">&gt; npm</a>
+        <a href="https://philstranger.com" target="_blank" rel="noopener">&gt; philstranger.com</a>
+      </div>
+      <p class="footer-sig">
+        vibe-focus v0.1.0 // MIT License // built for the vibe coders<span class="cursor"></span>
+      </p>
+    </div>
+  </footer>
+
+  <!-- ==================== TOAST ==================== -->
+  <div class="toast" id="toast">Copied to clipboard</div>
+
+  <!-- ==================== JS ==================== -->
+  <script>
+    // Copy install command
+    function copyInstall() {
+      const cmd = 'npm install -g vibe-focus';
+      navigator.clipboard.writeText(cmd).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'copied!';
+        btn.style.color = '#00ff41';
+        btn.style.borderColor = '#00ff41';
+
+        showToast();
+
+        setTimeout(() => {
+          btn.textContent = 'copy';
+          btn.style.color = '';
+          btn.style.borderColor = '';
+        }, 2000);
+      }).catch(() => {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = cmd;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast();
+      });
+    }
+
+    function showToast() {
+      const toast = document.getElementById('toast');
+      toast.classList.add('show');
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 1500);
+    }
+
+    // Subtle random flicker on ASCII art
+    (function() {
+      const art = document.querySelector('.ascii-art');
+      if (!art) return;
+
+      setInterval(() => {
+        if (Math.random() > 0.95) {
+          art.style.opacity = (0.7 + Math.random() * 0.3).toString();
+          setTimeout(() => {
+            art.style.opacity = '1';
+          }, 50 + Math.random() * 100);
+        }
+      }, 200);
+    })();
+
+    // Typewriter effect on tagline (runs once)
+    (function() {
+      const el = document.querySelector('.tagline');
+      if (!el) return;
+
+      const text = el.textContent;
+      el.textContent = '';
+      el.style.visibility = 'visible';
+
+      let i = 0;
+      function type() {
+        if (i < text.length) {
+          el.textContent += text.charAt(i);
+          i++;
+          setTimeout(type, 35);
+        }
+      }
+
+      // Start after a short delay
+      setTimeout(type, 500);
+    })();
+  </script>
+
+</body>
+</html>
