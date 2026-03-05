@@ -173,9 +173,14 @@ A full TUI dashboard with keyboard navigation:
 | `vf list` | List all tasks |
 | `vf switch <id>` | Switch task (guardian pushback!) |
 | `vf abandon` | Abandon current task |
+| `vf note "idea"` | Park an idea without losing focus |
+| `vf note --list` | Show parked notes |
+| `vf note --promote <id>` | Promote a note to a backlog task |
 | `vf prompt` | Generate focused prompt for Claude Code |
 | `vf scope --rules` | Write focus rules to `.claude/rules/` |
 | `vf guard --install` | Install Claude Code enforcement hooks |
+| `vf flow --on` | Auto-approve tools until current task is done |
+| `vf superflow --on` | Auto-approve tools until ALL tasks are done |
 | `vf dash` | Interactive TUI dashboard |
 
 ## Focus Score
