@@ -14,6 +14,7 @@ import { dashCommand } from './commands/dash.js';
 import { guardCommand } from './commands/guard.js';
 import { flowCommand, superflowCommand } from './commands/flow.js';
 import { noteCommand } from './commands/note.js';
+import { contextCommand } from './commands/context.js';
 
 const program = new Command();
 
@@ -38,6 +39,7 @@ program.addCommand(guardCommand);
 program.addCommand(flowCommand);
 program.addCommand(superflowCommand);
 program.addCommand(noteCommand);
+program.addCommand(contextCommand);
 // Default to status when no command given
 program.action(() => {
   try {
@@ -47,4 +49,4 @@ program.action(() => {
   }
 });
 
-program.parse();
+program.parseAsync();

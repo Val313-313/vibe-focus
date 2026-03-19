@@ -33,6 +33,9 @@ export function readState(): VibeFocusState {
   // Backwards compat: add notes if missing
   if (!state.notes) state.notes = [];
   if (!state.nextNoteNumber) state.nextNoteNumber = 1;
+  // Backwards compat: add session contexts if missing
+  if (!state.sessionContexts) state.sessionContexts = [];
+  if (!state.nextContextNumber) state.nextContextNumber = 1;
   return state;
 }
 
@@ -61,6 +64,8 @@ export function createEmptyState(projectName: string): VibeFocusState {
     nextNoteNumber: 1,
     currentSession: null,
     focusEvents: [],
+    sessionContexts: [],
+    nextContextNumber: 1,
   };
 }
 

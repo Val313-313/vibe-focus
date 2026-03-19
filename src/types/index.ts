@@ -51,6 +51,13 @@ export interface FocusSession {
   endedAt: string | null;
 }
 
+export interface SessionContext {
+  id: string;                          // "ctx-1", "ctx-2", etc.
+  taskId: string | null;              // which task was active when saved
+  savedAt: string;                    // ISO timestamp
+  summary: string;                    // free-form session summary
+}
+
 export interface VibeFocusState {
   version: 1;
   projectName: string;
@@ -62,6 +69,8 @@ export interface VibeFocusState {
   nextNoteNumber: number;
   currentSession: FocusSession | null;
   focusEvents: FocusEvent[];
+  sessionContexts: SessionContext[];
+  nextContextNumber: number;
 }
 
 export interface GuardianResponse {

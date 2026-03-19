@@ -59,6 +59,17 @@ try {
   const noteCount = (state.notes || []).filter(n => !n.promoted).length;
   const noteInfo = noteCount > 0 ? "\\nPARKED NOTES: " + noteCount + " ideas saved for later (vf note --list)" : "";
 
+  // Session context from previous session
+  const contexts = state.sessionContexts || [];
+  let sessionContextBlock = "";
+  if (contexts.length > 0) {
+    const latest = contexts[contexts.length - 1];
+    const ageMs = Date.now() - new Date(latest.savedAt).getTime();
+    const ageHours = Math.floor(ageMs / 3600000);
+    const ageStr = ageHours < 1 ? "just now" : ageHours < 24 ? ageHours + "h ago" : Math.floor(ageHours / 24) + "d ago";
+    sessionContextBlock = "\\n\\nPREVIOUS SESSION CONTEXT (saved " + ageStr + "):\\n" + latest.summary;
+  }
+
   const context = [
     "VIBE FOCUS ACTIVE - STRICT MODE",
     "",
@@ -67,6 +78,7 @@ try {
     "",
     unmetCriteria ? "REMAINING CRITERIA:\\n" + unmetCriteria : "ALL CRITERIA MET - run: vf done",
     noteInfo,
+    sessionContextBlock,
     "",
     "ENFORCEMENT: Before responding, verify the user's request relates to this task.",
     "If it does NOT relate to \\"" + task.title + "\\":",

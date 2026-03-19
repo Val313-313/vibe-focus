@@ -1,0 +1,216 @@
+import { Command } from 'commander';
+import chalk from 'chalk';
+import { readState, writeState } from '../core/state.js';
+import { getActiveTask } from '../core/task.js';
+import { success, info, warn } from '../ui/output.js';
+import type { SessionContext } from '../types/index.js';
+
+const MAX_CONTEXTS = 5; // keep last 5 session contexts
+
+export const contextCommand = new Command('context')
+  .description('Save and restore session context across Claude Code sessions')
+  .argument('[summary...]', 'Session summary to save')
+  .option('--show', 'Show the most recent saved context')
+  .option('--list', 'List all saved session contexts')
+  .option('--clear', 'Clear all saved contexts')
+  .action((summaryParts, opts) => {
+    if (opts.show) {
+      showContext();
+      return;
+    }
+    if (opts.list) {
+      listContexts();
+      return;
+    }
+    if (opts.clear) {
+      clearContexts();
+      return;
+    }
+
+    const summary = summaryParts?.join(' ')?.trim();
+    if (!summary) {
+      showContext();
+      return;
+    }
+
+    saveContext(summary);
+  });
+
+function saveContext(summary: string): void {
+  const state = readState();
+  const active = getActiveTask(state);
+
+  const ctx: SessionContext = {
+    id: `ctx-${state.nextContextNumber}`,
+    taskId: active?.id || null,
+    savedAt: new Date().toISOString(),
+    summary,
+  };
+
+  state.sessionContexts.push(ctx);
+  state.nextContextNumber++;
+
+  // Trim to max
+  if (state.sessionContexts.length > MAX_CONTEXTS) {
+    state.sessionContexts = state.sessionContexts.slice(-MAX_CONTEXTS);
+  }
+
+  writeState(state);
+
+  const g = chalk.green;
+  const gB = chalk.greenBright;
+  const gD = chalk.dim.green;
+  const c = chalk.cyan;
+  const d = chalk.dim;
+
+  console.log('');
+  console.log(gD('  ╔═══════════════════════════════════════════╗'));
+  console.log(gD('  ║') + gB('   SESSION CONTEXT SAVED                 ') + gD('║'));
+  console.log(gD('  ╠═══════════════════════════════════════════╣'));
+  console.log(gD('  ║') + '                                           ' + gD('║'));
+
+  // Wrap summary to fit in the box
+  const maxLine = 39;
+  const words = summary.split(' ');
+  let line = '';
+  const lines: string[] = [];
+  for (const word of words) {
+    if (line.length + word.length + 1 > maxLine) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? line + ' ' + word : word;
+    }
+  }
+  if (line) lines.push(line);
+
+  for (const l of lines) {
+    console.log(gD('  ║') + `  ${l.padEnd(41)}` + gD('║'));
+  }
+
+  console.log(gD('  ║') + '                                           ' + gD('║'));
+  console.log(gD('  ║') + d(`  ID: ${ctx.id}`) + ' '.repeat(Math.max(0, 35 - ctx.id.length)) + gD('║'));
+  if (active) {
+    const taskInfo = `  Task: ${active.id} - ${active.title}`;
+    console.log(gD('  ║') + d(taskInfo.slice(0, 41).padEnd(41)) + gD('║'));
+  }
+  console.log(gD('  ║') + '                                           ' + gD('║'));
+  console.log(gD('  ╚═══════════════════════════════════════════╝'));
+  console.log('');
+
+  info('This context will auto-inject into your next Claude Code session via the guard hook.');
+  info(`${state.sessionContexts.length}/${MAX_CONTEXTS} context slots used.`);
+}
+
+function showContext(): void {
+  const state = readState();
+
+  if (state.sessionContexts.length === 0) {
+    info('No session context saved yet.');
+    info('Save one with: vf context "what was accomplished, decisions made, next steps..."');
+    return;
+  }
+
+  const latest = state.sessionContexts[state.sessionContexts.length - 1];
+  const age = getTimeAgo(latest.savedAt);
+
+  const gB = chalk.greenBright;
+  const gD = chalk.dim.green;
+  const c = chalk.cyan;
+  const d = chalk.dim;
+
+  console.log('');
+  console.log(gD('  ╔═══════════════════════════════════════════╗'));
+  console.log(gD('  ║') + gB('   LAST SESSION CONTEXT                  ') + gD('║'));
+  console.log(gD('  ╠═══════════════════════════════════════════╣'));
+  console.log(gD('  ║') + '                                           ' + gD('║'));
+  console.log(gD('  ║') + c(`  ${latest.id}`) + d(` saved ${age}`.padEnd(41 - latest.id.length)) + gD('║'));
+
+  if (latest.taskId) {
+    const task = state.tasks.find(t => t.id === latest.taskId);
+    const taskInfo = task ? `  Task: ${task.id} - ${task.title}` : `  Task: ${latest.taskId}`;
+    console.log(gD('  ║') + d(taskInfo.slice(0, 41).padEnd(41)) + gD('║'));
+  }
+
+  console.log(gD('  ║') + '                                           ' + gD('║'));
+
+  // Wrap summary
+  const maxLine = 39;
+  const words = latest.summary.split(' ');
+  let line = '';
+  const lines: string[] = [];
+  for (const word of words) {
+    if (line.length + word.length + 1 > maxLine) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? line + ' ' + word : word;
+    }
+  }
+  if (line) lines.push(line);
+
+  for (const l of lines) {
+    console.log(gD('  ║') + `  ${l.padEnd(41)}` + gD('║'));
+  }
+
+  console.log(gD('  ║') + '                                           ' + gD('║'));
+  console.log(gD('  ╚═══════════════════════════════════════════╝'));
+  console.log('');
+}
+
+function listContexts(): void {
+  const state = readState();
+
+  if (state.sessionContexts.length === 0) {
+    info('No session contexts saved yet.');
+    info('Save one with: vf context "summary of what was done..."');
+    return;
+  }
+
+  const gB = chalk.greenBright;
+  const d = chalk.dim;
+  const c = chalk.cyan;
+
+  console.log('');
+  console.log(gB('  SESSION CONTEXTS'));
+  console.log(d('  ─────────────────────────────────────────'));
+  console.log('');
+
+  for (const ctx of state.sessionContexts) {
+    const age = getTimeAgo(ctx.savedAt);
+    const taskInfo = ctx.taskId ? d(` (${ctx.taskId})`) : '';
+    const preview = ctx.summary.length > 50 ? ctx.summary.slice(0, 47) + '...' : ctx.summary;
+
+    console.log(`  ${c(ctx.id)}${taskInfo}  ${d(age)}`);
+    console.log(`  ${preview}`);
+    console.log('');
+  }
+
+  console.log(d(`  ${state.sessionContexts.length}/${MAX_CONTEXTS} slots used`));
+  console.log('');
+}
+
+function clearContexts(): void {
+  const state = readState();
+  const count = state.sessionContexts.length;
+  state.sessionContexts = [];
+  writeState(state);
+
+  if (count > 0) {
+    success(`Cleared ${count} saved context${count > 1 ? 's' : ''}.`);
+  } else {
+    info('No contexts to clear.');
+  }
+}
+
+function getTimeAgo(isoDate: string): string {
+  const diff = Date.now() - new Date(isoDate).getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}

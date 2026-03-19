@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>Stop context collapse. Ship one thing at a time.</strong>
+  <strong>your AI agent does everything you say. that's the problem.</strong>
 </p>
 
 <p align="center">
@@ -19,25 +19,31 @@
   <a href="https://www.npmjs.com/package/vibe-focus"><img src="https://img.shields.io/npm/dm/vibe-focus.svg" alt="downloads"></a>
 </p>
 
+<p align="center">
+  a <a href="https://philstranger.com">phil stranger</a> project
+</p>
+
 ---
 
-## The Problem
+## the annoying problem
 
-You're vibe coding with Claude Code. You start on **user authentication**. Twenty minutes in, you notice the API error handling could be better. You "quickly" refactor that. Then you spot a CSS issue. Before you know it, you've touched 15 files across 4 different concerns, your context window is bloated, and Claude starts hallucinating because it lost track of what you're actually building.
+you're vibe coding. you tell Claude "build user auth." twenty minutes in you notice bad error handling. "quickly fix that." then some CSS catches your eye. forty-five minutes later: 15 files touched, 4 different concerns, nothing shipped, and your AI agent is hallucinating because it lost track of what you actually wanted.
 
-**This is context collapse.** And it kills vibe coding sessions.
+your AI agent didn't stop you. it did exactly what you asked. every single time.
 
-## The Solution
+**that's context collapse.** and it's context switching on steroids.
 
-**vibe-focus** is a Focus Guardian CLI that sits next to your AI coding agent and enforces single-task discipline:
+## the fix
 
-- **Define your project scope** - what's in, what's out
-- **Break work into focused tasks** with clear acceptance criteria
-- **Get pushed back** when you try to context-switch before finishing
-- **Auto-inject focus rules** into Claude Code via hooks
-- **Track your focus score** to build better habits
+**vibe-focus** is a CLI that sits next to your AI coding agent and tells it: "no. finish what you started."
 
-## Quick Start
+- **scope it** — define what's in, what's out. out-of-scope? blocked.
+- **one task, clear criteria** — no "done" without meeting them.
+- **pushback** — try to switch before finishing? the guardian says no.
+- **park it** — new idea mid-task? noted. not now.
+- **hook it** — plugs into Claude Code. every prompt gets checked.
+
+## 30 seconds to focus
 
 ```bash
 npm install -g vibe-focus
@@ -45,24 +51,24 @@ npm install -g vibe-focus
 cd your-project
 vf init
 vf scope --purpose "Build a REST API" --in "endpoints" "auth" --out "frontend" "deployment"
-vf add "Implement user registration" -c "POST /register endpoint" "Email validation" "Password hashing" "Returns JWT"
+vf add "User registration" -c "POST /register" "Email validation" "Password hashing" "Returns JWT"
 vf start t1
-vf guard --install   # Claude Code will now enforce your focus
+vf guard --install
 ```
 
-That's it. Claude Code will now **refuse to let you deviate** from your current task.
+done. your AI agent now refuses to let you drift.
 
-## How It Works
+## how it actually works
 
-### 1. Define Your Scope
+### 1. define your scope
 
 ```bash
-vf scope --purpose "E-commerce checkout flow" \
+vf scope --purpose "E-commerce checkout" \
          --in "Cart" "Payment" "Order confirmation" \
          --out "Product catalog" "User profiles" "Admin panel"
 ```
 
-Try to add a task outside your scope? Blocked:
+try to sneak in an admin panel task:
 
 ```
 ╭──────────────────────────────────────────────────╮
@@ -75,18 +81,26 @@ Try to add a task outside your scope? Blocked:
 ╰──────────────────────────────────────────────────╯
 ```
 
-### 2. Work Through Tasks
+### 2. work the task
 
 ```bash
-vf add "Implement cart total calculation" -c "Sum line items" "Apply discounts" "Tax calculation"
+vf add "Cart total calculation" -c "Sum line items" "Apply discounts" "Tax calculation"
 vf start t1
-vf check t1-c1         # Mark criteria as done
-vf done                # Complete task when all criteria met
+vf check t1-c1         # done
+vf check t1-c2         # done
+vf done                # ship it
 ```
 
-### 3. Get Pushed Back
+or add criteria interactively:
 
-Try to switch tasks before finishing?
+```bash
+vf add "Cart total calculation" -i
+# prompts you line by line. empty line = done.
+```
+
+### 3. get pushed back
+
+67% done and trying to switch?
 
 ```
 ╭──────────────────────────────────────────────────╮
@@ -100,7 +114,7 @@ Try to switch tasks before finishing?
 ╰──────────────────────────────────────────────────╯
 ```
 
-Switch 3+ times in a day?
+3+ switches in a day? pattern detected:
 
 ```
 ╭──────────────────────────────────────────────────╮
@@ -115,101 +129,152 @@ Switch 3+ times in a day?
 ╰──────────────────────────────────────────────────╯
 ```
 
-### 4. Claude Code Integration
+yes, the override flag is `--yolo`. you earned it.
 
-The killer feature. `vf guard --install` hooks directly into Claude Code:
+### 4. claude code integration
 
-- **Every prompt** gets checked against your active task
-- **Claude refuses** to work on out-of-scope requests
-- **Focus rules** are injected as system context
-- **Acceptance criteria** become Claude's definition of done
+the real thing. `vf guard --install` hooks into Claude Code:
 
-```bash
-vf guard --install    # Activate
-vf guard --status     # Check if active
-vf guard --remove     # Deactivate
-```
+- **every prompt** gets checked against your active task
+- **off-task requests** get refused and parked as notes
+- **focus rules** are injected as system context
+- **acceptance criteria** become Claude's definition of done
 
-What Claude sees on every prompt:
+what Claude sees on every prompt:
 
 ```
 VIBE FOCUS ACTIVE - STRICT MODE
-CURRENT TASK: t1 - Implement cart total
+CURRENT TASK: t1 - Cart total calculation
 REMAINING CRITERIA:
   - Tax calculation
 ENFORCEMENT: If request does NOT relate to this task → STOP, REMIND, REDIRECT
 ```
 
-### 5. Interactive Dashboard
+### 5. park ideas, don't lose them
+
+mid-task eureka moment? park it:
+
+```bash
+vf note "refactor the auth middleware"
+```
+
+come back later:
+
+```bash
+vf note --list              # see all parked ideas
+vf note --promote n1        # turn it into a real task
+```
+
+### 6. session memory
+
+closing your terminal? save where you left off:
+
+```bash
+vf context "implemented cart total, tax calc still open, decided to use Stripe Tax API"
+```
+
+next session, the guard hook auto-injects this context. no more "where was I?"
+
+### 7. flow mode
+
+tired of Claude asking permission for every file edit?
+
+```bash
+vf flow --on          # auto-approve tools until current task is done
+vf superflow --on     # auto-approve until ALL tasks are done
+```
+
+auto-disables when you `vf done`. guardrails stay on.
+
+### 8. interactive dashboard
 
 ```bash
 vf dash
 ```
 
-A full TUI dashboard with keyboard navigation:
-
 | Key | Action |
 |-----|--------|
 | `↑↓` | Navigate tasks / criteria |
 | `Enter` | Start task |
-| `Tab` | Switch between tasks and criteria panel |
+| `Tab` | Switch panels |
 | `Space` | Check/uncheck criterion |
-| `d` | Mark task as done |
-| `p` | Copy focused prompt to clipboard |
-| `f` | Force switch (guardian override) |
+| `d` | Mark task done |
+| `p` | Copy prompt to clipboard |
+| `f` | Force switch (override) |
 | `q` | Quit |
 
-## All Commands
+## all commands
 
-| Command | Description |
+### core workflow
+
+| Command | What it does |
 |---------|-------------|
-| `vf init` | Initialize vibe-focus in your project |
-| `vf scope` | Define/view project scope |
-| `vf add "task" -c "criteria"` | Add a task with acceptance criteria |
-| `vf start <id>` | Start working on a task |
-| `vf check <criterion-id>` | Mark a criterion as met |
-| `vf done` | Complete the current task |
-| `vf status` | Show focus dashboard |
+| `vf init` | Initialize project |
+| `vf add "task" -c "criterion"` | Add task with acceptance criteria |
+| `vf add "task" -i` | Add task, enter criteria interactively |
+| `vf start <id>` | Start a task (one at a time) |
+| `vf check <criterion-id>` | Mark criterion as met |
+| `vf check --all` | Mark all criteria as met |
+| `vf done` | Complete task (all criteria must be met) |
 | `vf list` | List all tasks |
+| `vf status` | Full dashboard with score, pipeline, events |
+
+### focus protection
+
+| Command | What it does |
+|---------|-------------|
+| `vf guard --install` | Hook into Claude Code (checks every prompt) |
+| `vf guard --remove` | Remove the hook |
+| `vf guard --status` | Check if guard is active |
 | `vf switch <id>` | Switch task (guardian pushback!) |
-| `vf abandon` | Abandon current task |
+| `vf scope` | Define/view project scope |
+| `vf scope --rules` | Write rules to `.claude/rules/` |
 | `vf note "idea"` | Park an idea without losing focus |
-| `vf note --list` | Show parked notes |
-| `vf note --promote <id>` | Promote a note to a backlog task |
-| `vf prompt` | Generate focused prompt for Claude Code |
-| `vf scope --rules` | Write focus rules to `.claude/rules/` |
-| `vf guard --install` | Install Claude Code enforcement hooks |
-| `vf flow --on` | Auto-approve tools until current task is done |
-| `vf superflow --on` | Auto-approve tools until ALL tasks are done |
+| `vf note --promote <id>` | Promote note to task |
+| `vf abandon` | Abandon task (score penalty) |
+
+### productivity
+
+| Command | What it does |
+|---------|-------------|
 | `vf dash` | Interactive TUI dashboard |
+| `vf flow --on` | Auto-approve tools until task done |
+| `vf superflow --on` | Auto-approve until ALL tasks done |
+| `vf context "summary"` | Save session context |
+| `vf context --show` | Show last saved context |
+| `vf prompt` | Generate focused prompt for Claude Code |
 
-## Focus Score
+## focus score
 
-vibe-focus tracks your focus habits with a daily score (0-100):
+daily score. 0-100. no mercy.
 
-| Score | Label | Meaning |
+| Score | Label | What it means |
 |-------|-------|---------|
-| 90-100 | Deep Focus | Minimal switching, tasks completed cleanly |
-| 70-89 | Good Focus | Occasional switches but mostly on-task |
-| 50-69 | Moderate | Multiple switches, consider smaller tasks |
-| 0-49 | Context Collapse | Too much switching, break tasks down further |
+| 90-100 | Deep Focus | clean execution. minimal switching. |
+| 70-89 | Good Focus | mostly on track. occasional detours. |
+| 50-69 | Moderate | too much switching. break tasks down. |
+| 0-49 | Context Collapse | you need vibe-focus more than anyone. |
 
-**+20** for completing a task, **-10** for switching, **-5** for overriding the guardian.
+**+20** complete a task. **-10** switch. **-5** override guardian. **-15** abandon.
 
-## Philosophy
+## philosophy
 
-1. **One task at a time.** Context switching is the enemy of vibe coding.
-2. **Define done before you start.** Acceptance criteria prevent scope creep.
-3. **Friction is a feature.** The pushback is intentional. It makes you think before you switch.
-4. **Override is always possible.** `--force` and `--yolo` exist. You're in control. But you'll see the score impact.
-5. **AI agents need boundaries too.** Without explicit scope, AI agents will happily refactor your entire codebase when you asked for a button.
+1. **one task at a time.** context switching is the enemy.
+2. **define done before you start.** acceptance criteria prevent scope creep.
+3. **friction is a feature.** the pushback makes you think.
+4. **override is always possible.** `--force` and `--yolo` exist. your call. but the score remembers.
+5. **AI agents need boundaries too.** without scope, they'll refactor your entire codebase when you asked for a button.
 
-## Works With
+## works with
 
-- **Claude Code** (native hook integration)
-- Any AI coding agent (via `vf prompt` and `vf scope --rules`)
-- Solo developers who want to stay focused
-- Teams that want to prevent scope creep in AI-assisted sessions
+- **Claude Code** — native hook integration
+- **Any AI agent** — via `vf prompt` and `vf scope --rules`
+- **Solo devs** who want to ship, not spiral
+- **Teams** preventing scope creep in AI-assisted sessions
+
+## build it. ship it. learn.
+
+made by [phil stranger](https://philstranger.com)
 
 ## License
 
