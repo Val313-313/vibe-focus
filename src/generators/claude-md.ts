@@ -112,6 +112,43 @@ export function generateClaudeMd(state: VibeFocusState): string {
     lines.push('');
   }
 
+  // Session context from previous sessions
+  if (state.sessionContexts.length > 0) {
+    const latest = state.sessionContexts[state.sessionContexts.length - 1];
+    lines.push('## SESSION CONTEXT');
+    lines.push('');
+    lines.push(`> Last saved: ${latest.savedAt}`);
+    lines.push('');
+    lines.push(`**Summary:** ${latest.summary}`);
+    lines.push('');
+
+    if (latest.decisions?.length) {
+      lines.push('### Key Decisions');
+      for (const d of latest.decisions) {
+        lines.push(`- ${d}`);
+      }
+      lines.push('');
+    }
+
+    if (latest.openQuestions?.length) {
+      lines.push('### Open Questions');
+      for (const q of latest.openQuestions) {
+        lines.push(`- ${q}`);
+      }
+      lines.push('');
+    }
+
+    if (latest.projectState) {
+      lines.push(`**Project State:** ${latest.projectState}`);
+      lines.push('');
+    }
+
+    if (latest.techStack?.length) {
+      lines.push(`**Tech Stack:** ${latest.techStack.join(', ')}`);
+      lines.push('');
+    }
+  }
+
   lines.push('## Completion Protocol');
   lines.push('When you believe a criterion is met:');
   lines.push('1. Verify it explicitly (show output, run test, demonstrate)');

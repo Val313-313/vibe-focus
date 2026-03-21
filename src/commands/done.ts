@@ -6,6 +6,8 @@ import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
 import { now, elapsedMinutes, formatDuration } from '../utils/time.js';
 import { success, error, warn, info } from '../ui/output.js';
 import { getFlowMode, disableFlowSilent } from './flow.js';
+import { saveContext } from './context.js';
+import type { StructuredContextFields } from './context.js';
 
 export const doneCommand = new Command('done')
   .description('Complete the current active task')
@@ -53,6 +55,27 @@ export const doneCommand = new Command('done')
     };
 
     writeState(state);
+
+    // Auto-save session context
+    const lastCtx = state.sessionContexts.length > 0
+      ? state.sessionContexts[state.sessionContexts.length - 1]
+      : null;
+
+    const carried: StructuredContextFields = {};
+    if (lastCtx?.projectState) carried.projectState = lastCtx.projectState;
+    if (lastCtx?.techStack?.length) carried.techStack = lastCtx.techStack;
+
+    const completedCriteria = task.acceptanceCriteria.filter(c => c.met).map(c => c.text);
+    if (completedCriteria.length > 0) {
+      carried.decisions = completedCriteria.map(c => `Done: ${c}`);
+    }
+
+    saveContext(
+      `Completed ${task.id}: "${task.title}"`,
+      carried,
+      task.id,
+      true,
+    );
 
     success(`Task ${task.id} completed: "${task.title}"`);
     if (total > 0) console.log(`  Criteria: ${total}/${total} met`);

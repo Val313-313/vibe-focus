@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { readState, writeState } from '../core/state.js';
 import { getActiveTask } from '../core/task.js';
@@ -7,13 +8,25 @@ import type { SessionContext } from '../types/index.js';
 
 const MAX_CONTEXTS = 5; // keep last 5 session contexts
 
+export interface StructuredContextFields {
+  decisions?: string[];
+  openQuestions?: string[];
+  projectState?: string;
+  techStack?: string[];
+}
+
 export const contextCommand = new Command('context')
   .description('Save and restore session context across Claude Code sessions')
   .argument('[summary...]', 'Session summary to save')
   .option('--show', 'Show the most recent saved context')
   .option('--list', 'List all saved session contexts')
   .option('--clear', 'Clear all saved contexts')
-  .action((summaryParts, opts) => {
+  .option('--decisions <decisions...>', 'Key decisions made')
+  .option('--questions <questions...>', 'Open/unresolved questions')
+  .option('--project-state <state>', 'Current project state (e.g. "lokal in dev")')
+  .option('--tech-stack <stack...>', 'Active tech stack')
+  .option('-i, --interactive', 'Interactively enter structured context fields')
+  .action(async (summaryParts, opts) => {
     if (opts.show) {
       showContext();
       return;
@@ -27,24 +40,93 @@ export const contextCommand = new Command('context')
       return;
     }
 
+    if (opts.interactive) {
+      await saveContextInteractive();
+      return;
+    }
+
     const summary = summaryParts?.join(' ')?.trim();
     if (!summary) {
       showContext();
       return;
     }
 
-    saveContext(summary);
+    saveContext(summary, {
+      decisions: opts.decisions,
+      openQuestions: opts.questions,
+      projectState: opts.projectState,
+      techStack: opts.techStack,
+    });
   });
 
-function saveContext(summary: string): void {
+async function promptMultiLine(rl: ReturnType<typeof createInterface>, label: string): Promise<string[]> {
+  const items: string[] = [];
+  console.log(chalk.cyan(`\n${label} (one per line, empty line to skip/finish):`));
+  let index = 1;
+  process.stdout.write(chalk.gray(`  ${index}. `));
+
+  return new Promise((resolve) => {
+    rl.on('line', (line) => {
+      if (line.trim() === '') {
+        rl.removeAllListeners('line');
+        resolve(items);
+        return;
+      }
+      items.push(line.trim());
+      index++;
+      process.stdout.write(chalk.gray(`  ${index}. `));
+    });
+  });
+}
+
+async function saveContextInteractive(): Promise<void> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  try {
+    const summary = await rl.question(chalk.cyan('Session summary: '));
+
+    if (!summary.trim()) {
+      info('No summary provided. Context not saved.');
+      rl.close();
+      return;
+    }
+
+    const decisions = await promptMultiLine(rl, 'Decisions');
+    const openQuestions = await promptMultiLine(rl, 'Open questions');
+    const projectState = await rl.question(chalk.cyan('\nProject state (e.g. "lokal in dev", empty to skip): '));
+    const techStack = await promptMultiLine(rl, 'Tech stack');
+
+    rl.close();
+
+    saveContext(summary.trim(), {
+      decisions: decisions.length > 0 ? decisions : undefined,
+      openQuestions: openQuestions.length > 0 ? openQuestions : undefined,
+      projectState: projectState.trim() || undefined,
+      techStack: techStack.length > 0 ? techStack : undefined,
+    });
+  } catch {
+    rl.close();
+  }
+}
+
+export function saveContext(
+  summary: string,
+  fields: StructuredContextFields = {},
+  explicitTaskId?: string,
+  quiet: boolean = false,
+): void {
   const state = readState();
   const active = getActiveTask(state);
 
   const ctx: SessionContext = {
     id: `ctx-${state.nextContextNumber}`,
-    taskId: active?.id || null,
+    taskId: explicitTaskId ?? active?.id ?? null,
     savedAt: new Date().toISOString(),
     summary,
+    ...(fields.decisions && { decisions: fields.decisions }),
+    ...(fields.openQuestions && { openQuestions: fields.openQuestions }),
+    ...(fields.projectState && { projectState: fields.projectState }),
+    ...(fields.techStack && { techStack: fields.techStack }),
   };
 
   state.sessionContexts.push(ctx);
@@ -57,7 +139,11 @@ function saveContext(summary: string): void {
 
   writeState(state);
 
-  const g = chalk.green;
+  if (quiet) {
+    info(`Session context saved (${ctx.id}).`);
+    return;
+  }
+
   const gB = chalk.greenBright;
   const gD = chalk.dim.green;
   const c = chalk.cyan;
@@ -70,8 +156,49 @@ function saveContext(summary: string): void {
   console.log(gD('  ║') + '                                           ' + gD('║'));
 
   // Wrap summary to fit in the box
+  printWrapped(summary, gD);
+
+  console.log(gD('  ║') + '                                           ' + gD('║'));
+  console.log(gD('  ║') + d(`  ID: ${ctx.id}`) + ' '.repeat(Math.max(0, 35 - ctx.id.length)) + gD('║'));
+
+  const taskRef = explicitTaskId ? state.tasks.find(t => t.id === explicitTaskId) : active;
+  if (taskRef) {
+    const taskInfo = `  Task: ${taskRef.id} - ${taskRef.title}`;
+    console.log(gD('  ║') + d(taskInfo.slice(0, 41).padEnd(41)) + gD('║'));
+  }
+
+  // Structured fields
+  if (ctx.decisions?.length) {
+    console.log(gD('  ║') + '                                           ' + gD('║'));
+    console.log(gD('  ║') + c('  Decisions:'.padEnd(41)) + gD('║'));
+    for (const dec of ctx.decisions) {
+      console.log(gD('  ║') + d(`    - ${dec}`.slice(0, 41).padEnd(41)) + gD('║'));
+    }
+  }
+  if (ctx.openQuestions?.length) {
+    console.log(gD('  ║') + c('  Open Questions:'.padEnd(41)) + gD('║'));
+    for (const q of ctx.openQuestions) {
+      console.log(gD('  ║') + d(`    ? ${q}`.slice(0, 41).padEnd(41)) + gD('║'));
+    }
+  }
+  if (ctx.projectState) {
+    console.log(gD('  ║') + c('  State: ') + d(ctx.projectState.slice(0, 32).padEnd(32)) + gD('║'));
+  }
+  if (ctx.techStack?.length) {
+    console.log(gD('  ║') + c('  Stack: ') + d(ctx.techStack.join(', ').slice(0, 32).padEnd(32)) + gD('║'));
+  }
+
+  console.log(gD('  ║') + '                                           ' + gD('║'));
+  console.log(gD('  ╚═══════════════════════════════════════════╝'));
+  console.log('');
+
+  info('This context will auto-inject into your next Claude Code session via the guard hook.');
+  info(`${state.sessionContexts.length}/${MAX_CONTEXTS} context slots used.`);
+}
+
+function printWrapped(text: string, gD: chalk.Chalk): void {
   const maxLine = 39;
-  const words = summary.split(' ');
+  const words = text.split(' ');
   let line = '';
   const lines: string[] = [];
   for (const word of words) {
@@ -87,19 +214,6 @@ function saveContext(summary: string): void {
   for (const l of lines) {
     console.log(gD('  ║') + `  ${l.padEnd(41)}` + gD('║'));
   }
-
-  console.log(gD('  ║') + '                                           ' + gD('║'));
-  console.log(gD('  ║') + d(`  ID: ${ctx.id}`) + ' '.repeat(Math.max(0, 35 - ctx.id.length)) + gD('║'));
-  if (active) {
-    const taskInfo = `  Task: ${active.id} - ${active.title}`;
-    console.log(gD('  ║') + d(taskInfo.slice(0, 41).padEnd(41)) + gD('║'));
-  }
-  console.log(gD('  ║') + '                                           ' + gD('║'));
-  console.log(gD('  ╚═══════════════════════════════════════════╝'));
-  console.log('');
-
-  info('This context will auto-inject into your next Claude Code session via the guard hook.');
-  info(`${state.sessionContexts.length}/${MAX_CONTEXTS} context slots used.`);
 }
 
 function showContext(): void {
@@ -134,23 +248,28 @@ function showContext(): void {
 
   console.log(gD('  ║') + '                                           ' + gD('║'));
 
-  // Wrap summary
-  const maxLine = 39;
-  const words = latest.summary.split(' ');
-  let line = '';
-  const lines: string[] = [];
-  for (const word of words) {
-    if (line.length + word.length + 1 > maxLine) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = line ? line + ' ' + word : word;
+  // Summary
+  printWrapped(latest.summary, gD);
+
+  // Structured fields
+  if (latest.decisions?.length) {
+    console.log(gD('  ║') + '                                           ' + gD('║'));
+    console.log(gD('  ║') + c('  Decisions:'.padEnd(41)) + gD('║'));
+    for (const dec of latest.decisions) {
+      console.log(gD('  ║') + d(`    - ${dec}`.slice(0, 41).padEnd(41)) + gD('║'));
     }
   }
-  if (line) lines.push(line);
-
-  for (const l of lines) {
-    console.log(gD('  ║') + `  ${l.padEnd(41)}` + gD('║'));
+  if (latest.openQuestions?.length) {
+    console.log(gD('  ║') + c('  Open Questions:'.padEnd(41)) + gD('║'));
+    for (const q of latest.openQuestions) {
+      console.log(gD('  ║') + d(`    ? ${q}`.slice(0, 41).padEnd(41)) + gD('║'));
+    }
+  }
+  if (latest.projectState) {
+    console.log(gD('  ║') + c('  State: ') + d(latest.projectState.slice(0, 32).padEnd(32)) + gD('║'));
+  }
+  if (latest.techStack?.length) {
+    console.log(gD('  ║') + c('  Stack: ') + d(latest.techStack.join(', ').slice(0, 32).padEnd(32)) + gD('║'));
   }
 
   console.log(gD('  ║') + '                                           ' + gD('║'));
@@ -170,6 +289,7 @@ function listContexts(): void {
   const gB = chalk.greenBright;
   const d = chalk.dim;
   const c = chalk.cyan;
+  const y = chalk.yellow;
 
   console.log('');
   console.log(gB('  SESSION CONTEXTS'));
@@ -183,6 +303,12 @@ function listContexts(): void {
 
     console.log(`  ${c(ctx.id)}${taskInfo}  ${d(age)}`);
     console.log(`  ${preview}`);
+    if (ctx.projectState) {
+      console.log(`  ${y('state:')} ${ctx.projectState}`);
+    }
+    if (ctx.techStack?.length) {
+      console.log(`  ${y('stack:')} ${ctx.techStack.join(', ')}`);
+    }
     console.log('');
   }
 

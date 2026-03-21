@@ -56,6 +56,10 @@ export interface SessionContext {
   taskId: string | null;              // which task was active when saved
   savedAt: string;                    // ISO timestamp
   summary: string;                    // free-form session summary
+  decisions?: string[];               // key decisions made during session
+  openQuestions?: string[];            // unresolved questions
+  projectState?: string;              // e.g. "lokal in dev", "deployed auf vercel"
+  techStack?: string[];               // active tech stack info
 }
 
 export interface VibeFocusState {

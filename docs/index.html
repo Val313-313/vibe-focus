@@ -915,6 +915,35 @@
             Build better habits over time.
           </p>
         </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">~</span>
+          <h3>Session Memory</h3>
+          <p>
+            You close the terminal. Claude forgets everything.
+            <code>vf context</code> saves what matters — decisions, state, stack —
+            and auto-injects it when you come back.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&gt;&gt;</span>
+          <h3>Flow Mode</h3>
+          <p>
+            Claude asks permission for every file edit. Every. Single. One.
+            <code>vf flow</code> auto-approves until your task is done.
+            No interruptions, just shipping.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">||</span>
+          <h3>Note Parking</h3>
+          <p>
+            Great idea. Wrong moment. <code>vf note</code> parks it without
+            breaking your focus. Promote it to a real task later — or let it rot.
+          </p>
+        </div>
       </div>
     </div>
   </section>
@@ -923,9 +952,9 @@
   <section id="how-it-works">
     <div class="container">
       <span class="section-label">how it works</span>
-      <h2>Four Steps to Focus</h2>
+      <h2>Five Steps to Focus</h2>
       <p class="section-desc">
-        Initialize, scope, task, ship. Repeat.
+        Initialize, scope, task, ship, remember. Repeat.
       </p>
 
       <div class="steps">
@@ -1052,6 +1081,33 @@ REMAINING CRITERIA:
   - Error handling for failed charges
 ENFORCEMENT: If request does NOT relate
   to this task -> STOP, REMIND, REDIRECT</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Step 5 -->
+        <div class="step">
+          <div class="step-number">5</div>
+          <div class="step-content">
+            <h3>Pick Up Where You Left Off</h3>
+            <p>Terminal closed. Machine rebooted. Doesn't matter. Save your session context and the guard hook injects it next time automatically.</p>
+
+            <div class="terminal">
+              <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">~/my-project</span>
+              </div>
+              <div class="terminal-body">
+<pre><span class="comment"># End of session — save what matters</span>
+<span class="prompt-char">$ </span><span class="cmd">vf context</span> <span class="string">"auth flow done, switched to JWT, need refresh tokens"</span>
+<span class="green-text">Session context saved (ctx-3)</span>
+
+<span class="comment"># Next day, new terminal — context auto-loads</span>
+<span class="prompt-char">$ </span><span class="cmd">claude</span>
+<span class="dim">PREVIOUS SESSION CONTEXT (saved 14h ago):
+  auth flow done, switched to JWT, need refresh tokens</span></pre>
               </div>
             </div>
           </div>
@@ -1200,8 +1256,11 @@ ENFORCEMENT: If request does NOT relate
           <tr><td><code>vf guard --install</code></td><td>Install Claude Code enforcement hooks</td></tr>
           <tr><td><code>vf guard --status</code></td><td>Check if guard is active</td></tr>
           <tr><td><code>vf guard --remove</code></td><td>Remove Claude Code hooks</td></tr>
+          <tr><td><code>vf context "summary"</code></td><td>Save session context — survives terminal death</td></tr>
+          <tr><td><code>vf context -i</code></td><td>Interactive mode — walks you through what to save</td></tr>
+          <tr><td><code>vf context --show</code></td><td>Show last saved session context</td></tr>
           <tr><td><code>vf flow --on</code></td><td>Auto-approve tools until current task is done</td></tr>
-          <tr><td><code>vf superflow --on</code></td><td>Auto-approve tools until ALL tasks done (careful mode)</td></tr>
+          <tr><td><code>vf superflow --on</code></td><td>Auto-approve tools until ALL tasks done</td></tr>
           <tr><td><code>vf dash</code></td><td>Interactive TUI dashboard</td></tr>
         </tbody>
       </table>

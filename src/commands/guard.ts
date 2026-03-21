@@ -68,6 +68,18 @@ try {
     const ageHours = Math.floor(ageMs / 3600000);
     const ageStr = ageHours < 1 ? "just now" : ageHours < 24 ? ageHours + "h ago" : Math.floor(ageHours / 24) + "d ago";
     sessionContextBlock = "\\n\\nPREVIOUS SESSION CONTEXT (saved " + ageStr + "):\\n" + latest.summary;
+    if (latest.decisions && latest.decisions.length > 0) {
+      sessionContextBlock += "\\n\\nKEY DECISIONS:\\n" + latest.decisions.map(function(d) { return "  - " + d; }).join("\\n");
+    }
+    if (latest.openQuestions && latest.openQuestions.length > 0) {
+      sessionContextBlock += "\\n\\nOPEN QUESTIONS:\\n" + latest.openQuestions.map(function(q) { return "  ? " + q; }).join("\\n");
+    }
+    if (latest.projectState) {
+      sessionContextBlock += "\\nPROJECT STATE: " + latest.projectState;
+    }
+    if (latest.techStack && latest.techStack.length > 0) {
+      sessionContextBlock += "\\nTECH STACK: " + latest.techStack.join(", ");
+    }
   }
 
   const context = [
