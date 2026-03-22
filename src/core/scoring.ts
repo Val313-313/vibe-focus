@@ -1,4 +1,5 @@
 import type { VibeFocusState } from '../types/index.js';
+import { getTodayStart } from '../utils/time.js';
 
 export interface ScoreFactors {
   tasksCompleted: number;
@@ -7,9 +8,17 @@ export interface ScoreFactors {
   tasksAbandoned: number;
 }
 
+export function computeScoreFromFactors(factors: ScoreFactors): number {
+  let score = 50;
+  score += factors.tasksCompleted * 20;
+  score -= factors.tasksSwitchedAway * 10;
+  score -= factors.pushbackOverrides * 5;
+  score -= factors.tasksAbandoned * 15;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
 export function calculateDailyScore(state: VibeFocusState): number {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+  const todayStart = getTodayStart();
 
   const todayEvents = state.focusEvents.filter(
     (e) => new Date(e.timestamp) >= todayStart
@@ -22,13 +31,7 @@ export function calculateDailyScore(state: VibeFocusState): number {
     tasksAbandoned: todayEvents.filter((e) => e.type === 'abandon').length,
   };
 
-  let score = 50;
-  score += factors.tasksCompleted * 20;
-  score -= factors.tasksSwitchedAway * 10;
-  score -= factors.pushbackOverrides * 5;
-  score -= factors.tasksAbandoned * 15;
-
-  return Math.max(0, Math.min(100, Math.round(score)));
+  return computeScoreFromFactors(factors);
 }
 
 export function scoreLabel(score: number): string {

@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { readState, writeState } from '../core/state.js';
-import { getTask, resolveActiveTask, updateTask } from '../core/task.js';
+import { getTask, resolveActiveTask, updateTask, resolveWorker } from '../core/task.js';
 import { evaluateSwitch } from '../core/guardian.js';
 import { now } from '../utils/time.js';
 import { success, error, printFocusCard, printGuardian, info } from '../ui/output.js';
@@ -15,7 +15,7 @@ export const switchCommand = new Command('switch')
   .action((id, opts) => {
     let state = readState();
     const target = getTask(state, id);
-    const worker: string | undefined = opts.worker ?? process.env.VF_WORKER;
+    const worker = resolveWorker(opts);
 
     if (!target) {
       error(`Task ${id} not found.`);

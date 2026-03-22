@@ -4,6 +4,7 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import type { VibeFocusState } from '../types/index.js';
 import {
   buildGuardContext,
   buildNoTaskMessage,
@@ -25,7 +26,7 @@ function findStateFile(dir: string): string | null {
   return null;
 }
 
-function resolveActiveTaskId(state: any, vfWorker: string | null): string | null {
+function resolveActiveTaskId(state: VibeFocusState, vfWorker: string | null): string | null {
   let activeTaskId = state.activeTaskId;
   if (vfWorker && state.activeWorkers?.[vfWorker]) {
     activeTaskId = state.activeWorkers[vfWorker];
@@ -33,18 +34,18 @@ function resolveActiveTaskId(state: any, vfWorker: string | null): string | null
   return activeTaskId;
 }
 
-function extractWorkerContext(state: any, vfWorker: string | null): WorkerContext {
+function extractWorkerContext(state: VibeFocusState, vfWorker: string | null): WorkerContext {
   const workers: Record<string, string> = state.activeWorkers || {};
   const otherWorkers = Object.entries(workers)
     .filter(([name]) => name !== vfWorker)
     .map(([name, taskId]) => {
-      const task = state.tasks.find((t: any) => t.id === taskId);
+      const task = state.tasks.find((t) => t.id === taskId);
       return `${name}: ${task ? task.title : taskId}`;
     });
   return { currentWorker: vfWorker, otherWorkers };
 }
 
-function extractSessionContext(state: any): SessionMemoryContext | null {
+function extractSessionContext(state: VibeFocusState): SessionMemoryContext | null {
   const contexts = state.sessionContexts || [];
   if (contexts.length === 0) return null;
   const latest = contexts[contexts.length - 1];
@@ -119,7 +120,7 @@ try {
   const stateFile = findStateFile(projectDir);
   if (!stateFile) process.exit(0);
 
-  const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
+  const state = JSON.parse(readFileSync(stateFile, 'utf-8')) as VibeFocusState;
   const vfWorker = process.env.VF_WORKER || null;
   const stateDir = dirname(stateFile);
 
@@ -130,21 +131,21 @@ try {
     process.exit(0);
   }
 
-  const rawTask = state.tasks.find((t: any) => t.id === activeTaskId);
+  const rawTask = state.tasks.find((t) => t.id === activeTaskId);
   if (!rawTask) process.exit(0);
 
   const task: TaskContext = {
     id: rawTask.id,
     title: rawTask.title,
-    metCount: rawTask.acceptanceCriteria.filter((c: any) => c.met).length,
+    metCount: rawTask.acceptanceCriteria.filter((c) => c.met).length,
     totalCount: rawTask.acceptanceCriteria.length,
     unmetCriteria: rawTask.acceptanceCriteria
-      .filter((c: any) => !c.met)
-      .map((c: any) => c.text),
+      .filter((c) => !c.met)
+      .map((c) => c.text),
   };
 
   const worker = extractWorkerContext(state, vfWorker);
-  const noteCount = (state.notes || []).filter((n: any) => !n.promoted).length;
+  const noteCount = (state.notes || []).filter((n) => !n.promoted).length;
   const session = extractSessionContext(state);
 
   // Read team username from local config

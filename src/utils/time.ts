@@ -8,6 +8,12 @@ export function elapsedMinutes(since: string): number {
   return Math.round((current - start) / 60000);
 }
 
+export function getTodayStart(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 export function formatDuration(minutes: number): string {
   if (minutes < 60) return `${minutes}m`;
   const h = Math.floor(minutes / 60);

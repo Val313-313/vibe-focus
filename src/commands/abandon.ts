@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { readState, writeState } from '../core/state.js';
-import { resolveActiveTask, cleanupWorkers, updateTask } from '../core/task.js';
+import { resolveActiveTask, cleanupWorkers, updateTask, resolveWorker } from '../core/task.js';
 import { now } from '../utils/time.js';
 import { success, error, info } from '../ui/output.js';
 
@@ -11,7 +11,7 @@ export const abandonCommand = new Command('abandon')
   .option('--worker <name>', 'Abandon the task for a specific worker/tab')
   .action((opts) => {
     let state = readState();
-    const worker: string | undefined = opts.worker ?? process.env.VF_WORKER;
+    const worker = resolveWorker(opts);
     const task = resolveActiveTask(state, worker);
 
     if (!task) {

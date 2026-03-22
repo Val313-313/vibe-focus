@@ -1,5 +1,4 @@
 import chalk from 'chalk';
-import Table from 'cli-table3';
 import { Command } from 'commander';
 import { readState } from '../core/state.js';
 import { criteriaProgress } from '../core/task.js';

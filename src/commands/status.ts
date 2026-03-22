@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { readState } from '../core/state.js';
 import { getActiveTask, getAllActiveWorkers, criteriaProgress } from '../core/task.js';
 import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
-import { elapsedMinutes, formatDuration } from '../utils/time.js';
+import { elapsedMinutes, formatDuration, getTodayStart } from '../utils/time.js';
 
 const W = 62; // dashboard width
 
@@ -110,8 +110,9 @@ export const statusCommand = new Command('status')
     const timeStr = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const dateStr = now.toLocaleDateString('de-DE');
 
+    const todayStart = getTodayStart();
     const todayEvents = state.focusEvents.filter(
-      (e) => new Date(e.timestamp) >= new Date(new Date().setHours(0, 0, 0, 0))
+      (e) => new Date(e.timestamp) >= todayStart
     );
     const todaySwitches = todayEvents.filter((e) => e.type === 'switch_away').length;
     const todayCompleted = todayEvents.filter((e) => e.type === 'complete').length;

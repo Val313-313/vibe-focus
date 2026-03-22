@@ -98,7 +98,7 @@ export function buildTeamBlock(team: TeamContext): string {
   if (team.coworkers.length === 0) return '';
 
   const lines: string[] = [];
-  lines.push('\nTEAM CONTEXT (vibe-focus-team):');
+  lines.push('\nTEAM CONTEXT:');
   for (const cw of team.coworkers) {
     lines.push(`  ${cw.username} [${cw.status}] \u2192 ${cw.taskInfo}${cw.progressInfo}`);
   }

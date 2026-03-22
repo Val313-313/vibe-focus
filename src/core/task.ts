@@ -124,6 +124,10 @@ export function criteriaProgress(task: Task): { met: number; total: number } {
   return { met, total };
 }
 
+export function resolveWorker(opts: { worker?: string }): string | undefined {
+  return opts.worker ?? process.env.VF_WORKER ?? undefined;
+}
+
 export function unmetDependencies(state: VibeFocusState, task: Task): string[] {
   return task.dependencies.filter((depId) => {
     const dep = state.tasks.find((t) => t.id === depId);

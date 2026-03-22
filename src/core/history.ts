@@ -1,4 +1,5 @@
 import type { VibeFocusState, FocusEvent } from '../types/index.js';
+import { computeScoreFromFactors } from './scoring.js';
 
 export interface DailyStats {
   date: string;           // "2026-03-21"
@@ -13,15 +14,6 @@ export interface DailyStats {
 
 function dateKey(timestamp: string): string {
   return timestamp.slice(0, 10); // "2026-03-21T14:00:00.000Z" → "2026-03-21"
-}
-
-function computeScore(stats: Omit<DailyStats, 'score' | 'date' | 'eventCount'>): number {
-  let score = 50;
-  score += stats.tasksCompleted * 20;
-  score -= stats.tasksSwitched * 10;
-  score -= stats.overrides * 5;
-  score -= stats.tasksAbandoned * 15;
-  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 export function getDailyHistory(state: VibeFocusState, maxDays: number = 14): DailyStats[] {
@@ -49,7 +41,12 @@ export function getDailyHistory(state: VibeFocusState, maxDays: number = 14): Da
 
     days.push({
       date,
-      score: computeScore(stats),
+      score: computeScoreFromFactors({
+        tasksCompleted: stats.tasksCompleted,
+        tasksSwitchedAway: stats.tasksSwitched,
+        pushbackOverrides: stats.overrides,
+        tasksAbandoned: stats.tasksAbandoned,
+      }),
       ...stats,
       eventCount: events.length,
     });

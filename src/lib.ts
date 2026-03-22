@@ -37,6 +37,7 @@ export {
   updateTask,
   criteriaProgress,
   unmetDependencies,
+  resolveWorker,
 } from './core/task.js';
 
 // Guardian
@@ -49,7 +50,8 @@ export {
 // History & scoring
 export { getDailyHistory, getStreak, getAverageScore } from './core/history.js';
 export type { DailyStats } from './core/history.js';
-export { calculateDailyScore, scoreLabel } from './core/scoring.js';
+export { calculateDailyScore, computeScoreFromFactors, scoreLabel } from './core/scoring.js';
+export type { ScoreFactors } from './core/scoring.js';
 
 // UI helpers
 export {
@@ -64,7 +66,7 @@ export {
 } from './ui/output.js';
 
 // Utils
-export { now, elapsedMinutes, formatDuration } from './utils/time.js';
+export { now, elapsedMinutes, formatDuration, getTodayStart } from './utils/time.js';
 export { generateTaskId, generateCriterionId } from './utils/id.js';
 
 // Team types

@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { readState, writeState } from '../core/state.js';
-import { getTask, resolveActiveTask, updateTask, unmetDependencies } from '../core/task.js';
+import { getTask, resolveActiveTask, updateTask, unmetDependencies, resolveWorker } from '../core/task.js';
 import { evaluateSwitch } from '../core/guardian.js';
 import { now } from '../utils/time.js';
 import { success, error, printFocusCard, printGuardian, info } from '../ui/output.js';
@@ -13,7 +13,7 @@ export const startCommand = new Command('start')
   .action((id, opts) => {
     let state = readState();
     const task = getTask(state, id);
-    const worker: string | undefined = opts.worker ?? process.env.VF_WORKER;
+    const worker = resolveWorker(opts);
 
     if (!task) {
       error(`Task ${id} not found.`);

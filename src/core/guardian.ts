@@ -1,10 +1,9 @@
 import type { Task, VibeFocusState, GuardianResponse } from '../types/index.js';
 import { criteriaProgress } from './task.js';
-import { elapsedMinutes } from '../utils/time.js';
+import { elapsedMinutes, getTodayStart } from '../utils/time.js';
 
 function todaySwitchCount(state: VibeFocusState): number {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+  const todayStart = getTodayStart();
   return state.focusEvents.filter(
     (e) =>
       e.type === 'switch_away' &&

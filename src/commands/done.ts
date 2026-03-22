@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { readState, writeState } from '../core/state.js';
-import { resolveActiveTask, cleanupWorkers, updateTask, criteriaProgress } from '../core/task.js';
+import { resolveActiveTask, cleanupWorkers, updateTask, criteriaProgress, resolveWorker } from '../core/task.js';
 import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
 import { now, elapsedMinutes, formatDuration } from '../utils/time.js';
 import { success, error, warn, info } from '../ui/output.js';
@@ -15,7 +15,7 @@ export const doneCommand = new Command('done')
   .option('--worker <name>', 'Complete the task for a specific worker/tab')
   .action((opts) => {
     let state = readState();
-    const worker: string | undefined = opts.worker ?? process.env.VF_WORKER;
+    const worker = resolveWorker(opts);
     const task = resolveActiveTask(state, worker);
 
     if (!task) {

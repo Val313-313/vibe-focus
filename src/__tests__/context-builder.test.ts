@@ -167,7 +167,7 @@ describe('buildTeamBlock', () => {
       myActiveFiles: ['src/index.ts'],
     };
     const block = buildTeamBlock(team);
-    expect(block).toContain('TEAM CONTEXT (vibe-focus-team):');
+    expect(block).toContain('TEAM CONTEXT:');
     expect(block).toContain('bob [active]');
     expect(block).toContain('t2 - Fix bug (1/3)');
     expect(block).toContain('charlie [idle]');
