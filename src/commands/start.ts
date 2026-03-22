@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { readState, writeState } from '../core/state.js';
-import { getTask, getActiveTask, updateTask, unmetDependencies } from '../core/task.js';
+import { getTask, resolveActiveTask, updateTask, unmetDependencies } from '../core/task.js';
 import { evaluateSwitch } from '../core/guardian.js';
 import { now } from '../utils/time.js';
 import { success, error, printFocusCard, printGuardian, info } from '../ui/output.js';
@@ -9,9 +9,11 @@ export const startCommand = new Command('start')
   .description('Start working on a task')
   .argument('<id>', 'Task ID (e.g. t1)')
   .option('--force', 'Force start even if another task is active')
+  .option('--worker <name>', 'Assign to a named worker/tab (multi-tab support)')
   .action((id, opts) => {
     let state = readState();
     const task = getTask(state, id);
+    const worker: string | undefined = opts.worker ?? process.env.VF_WORKER;
 
     if (!task) {
       error(`Task ${id} not found.`);
@@ -37,8 +39,9 @@ export const startCommand = new Command('start')
       return;
     }
 
-    // Guardian check if another task is active
-    const active = getActiveTask(state);
+    // Guardian check: scope to worker if specified
+    const active = resolveActiveTask(state, worker);
+
     if (active && active.id !== id) {
       if (!opts.force) {
         const response = evaluateSwitch(state, active, id);
@@ -50,6 +53,7 @@ export const startCommand = new Command('start')
       state = updateTask(state, active.id, {
         status: 'backlog',
         switchCount: active.switchCount + 1,
+        worker: null,
       });
       state = {
         ...state,
@@ -66,10 +70,19 @@ export const startCommand = new Command('start')
     state = updateTask(state, id, {
       status: 'active',
       startedAt: task.startedAt ?? timestamp,
+      worker: worker ?? null,
     });
+
+    // Update active tracking
+    const newWorkers = { ...state.activeWorkers };
+    if (worker) {
+      newWorkers[worker] = id;
+    }
+
     state = {
       ...state,
-      activeTaskId: id,
+      activeTaskId: worker ? state.activeTaskId : id, // only set default if no worker
+      activeWorkers: newWorkers,
       currentSession: { taskId: id, startedAt: timestamp, endedAt: null },
       focusEvents: [
         ...state.focusEvents,
@@ -80,9 +93,13 @@ export const startCommand = new Command('start')
     writeState(state);
 
     const updated = state.tasks.find((t) => t.id === id)!;
-    success(`Started task ${id}`);
+    success(`Started task ${id}` + (worker ? ` [worker: ${worker}]` : ''));
     printFocusCard(updated);
     console.log('');
+    if (worker) {
+      info(`Worker "${worker}" is now focused on this task.`);
+      info(`Set VF_WORKER=${worker} in your shell for guard hook enforcement.`);
+    }
     info('Run "vf prompt" to get a focused Claude Code prompt.');
-    info('Run "vf done" when all criteria are met.');
+    info('Run "vf done"' + (worker ? ` --worker ${worker}` : '') + ' when all criteria are met.');
   });

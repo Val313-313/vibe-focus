@@ -36,6 +36,7 @@ export function createTask(
     abandonedAt: null,
     abandonReason: null,
     switchCount: 0,
+    worker: null,
   };
 
   return {
@@ -51,6 +52,55 @@ export function createTask(
 export function getActiveTask(state: VibeFocusState): Task | null {
   if (!state.activeTaskId) return null;
   return state.tasks.find((t) => t.id === state.activeTaskId) ?? null;
+}
+
+export function getActiveTaskForWorker(state: VibeFocusState, worker: string): Task | null {
+  const taskId = state.activeWorkers?.[worker];
+  if (!taskId) return null;
+  return state.tasks.find((t) => t.id === taskId) ?? null;
+}
+
+export function getAllActiveWorkers(state: VibeFocusState): Array<{ worker: string; task: Task }> {
+  const result: Array<{ worker: string; task: Task }> = [];
+  for (const [worker, taskId] of Object.entries(state.activeWorkers ?? {})) {
+    const task = state.tasks.find((t) => t.id === taskId);
+    if (task && task.status === 'active') {
+      result.push({ worker, task });
+    }
+  }
+  return result;
+}
+
+/**
+ * Resolve active task: by worker if given, otherwise default activeTaskId.
+ */
+export function resolveActiveTask(state: VibeFocusState, worker?: string): Task | null {
+  if (worker && state.activeWorkers?.[worker]) {
+    const taskId = state.activeWorkers[worker];
+    return state.tasks.find((t) => t.id === taskId) ?? null;
+  }
+  return getActiveTask(state);
+}
+
+/**
+ * Remove a task from activeWorkers and optionally clear activeTaskId.
+ * Returns updated state fields (activeTaskId, activeWorkers).
+ */
+export function cleanupWorkers(
+  state: VibeFocusState,
+  taskId: string,
+  worker?: string,
+): Pick<VibeFocusState, 'activeTaskId' | 'activeWorkers'> {
+  const newWorkers = { ...state.activeWorkers };
+  if (worker && newWorkers[worker]) delete newWorkers[worker];
+  // Also remove any other worker pointing to this task
+  for (const [w, tid] of Object.entries(newWorkers)) {
+    if (tid === taskId) delete newWorkers[w];
+  }
+  return {
+    activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
+    activeWorkers: newWorkers,
+  };
 }
 
 export function getTask(state: VibeFocusState, id: string): Task | null {

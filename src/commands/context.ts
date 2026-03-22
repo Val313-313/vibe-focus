@@ -196,7 +196,7 @@ export function saveContext(
   info(`${state.sessionContexts.length}/${MAX_CONTEXTS} context slots used.`);
 }
 
-function printWrapped(text: string, gD: chalk.Chalk): void {
+function printWrapped(text: string, gD: typeof chalk): void {
   const maxLine = 39;
   const words = text.split(' ');
   let line = '';

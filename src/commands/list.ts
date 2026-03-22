@@ -63,7 +63,8 @@ export const listCommand = new Command('list')
           ? chalk.dim(` depends: ${t.dependencies.join(', ')}`)
           : '';
 
-        console.log(`  ${prefix} ${id}  ${t.title}${criteria}${elapsed}${deps}`);
+        const workerTag = t.worker ? chalk.cyan(` [${t.worker}]`) : '';
+        console.log(`  ${prefix} ${id}  ${t.title}${criteria}${elapsed}${deps}${workerTag}`);
       }
     }
 

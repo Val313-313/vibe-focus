@@ -30,17 +30,35 @@ try {
   if (!stateFile) process.exit(0);
 
   const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-  if (!state.activeTaskId) {
+  const vfWorker = process.env.VF_WORKER || null;
+
+  // Determine which task to enforce
+  let activeTaskId = state.activeTaskId;
+  if (vfWorker && state.activeWorkers && state.activeWorkers[vfWorker]) {
+    activeTaskId = state.activeWorkers[vfWorker];
+  }
+
+  // Show other active workers as context
+  const workers = state.activeWorkers || {};
+  const otherWorkers = Object.entries(workers)
+    .filter(function(pair) { return pair[0] !== vfWorker; })
+    .map(function(pair) {
+      const wTask = state.tasks.find(function(t) { return t.id === pair[1]; });
+      return pair[0] + ": " + (wTask ? wTask.title : pair[1]);
+    });
+
+  if (!activeTaskId) {
     // No active task - remind user to start one
+    const workerHint = vfWorker ? ' (worker: ' + vfWorker + ')' : '';
     const output = {
-      result: "VIBE FOCUS: No active task. Before working, create and start a task:\\n  vf add \\"task\\" -c \\"criterion\\"\\n  vf start t1\\nThis keeps your session focused.",
+      result: "VIBE FOCUS: No active task" + workerHint + ". Before working, create and start a task:\\n  vf add \\"task\\" -c \\"criterion\\"\\n  vf start t1" + (vfWorker ? " --worker " + vfWorker : "") + "\\nThis keeps your session focused.",
       suppressPrompt: false
     };
     console.log(JSON.stringify(output));
     process.exit(0);
   }
 
-  const task = state.tasks.find(t => t.id === state.activeTaskId);
+  const task = state.tasks.find(function(t) { return t.id === activeTaskId; });
   if (!task) process.exit(0);
 
   const unmetCriteria = task.acceptanceCriteria
@@ -82,14 +100,21 @@ try {
     }
   }
 
+  const workerLabel = vfWorker ? "\\nWORKER: " + vfWorker : "";
+  const otherWorkersBlock = otherWorkers.length > 0
+    ? "\\n\\nOTHER ACTIVE WORKERS:\\n" + otherWorkers.map(function(w) { return "  - " + w; }).join("\\n")
+    : "";
+
   const context = [
     "VIBE FOCUS ACTIVE - STRICT MODE",
+    workerLabel,
     "",
     "CURRENT TASK: " + task.id + " - " + task.title,
     "PROGRESS: " + metCount + "/" + totalCount + " criteria met",
     "",
-    unmetCriteria ? "REMAINING CRITERIA:\\n" + unmetCriteria : "ALL CRITERIA MET - run: vf done",
+    unmetCriteria ? "REMAINING CRITERIA:\\n" + unmetCriteria : "ALL CRITERIA MET - run: vf done" + (vfWorker ? " --worker " + vfWorker : ""),
     noteInfo,
+    otherWorkersBlock,
     sessionContextBlock,
     "",
     "ENFORCEMENT: Before responding, verify the user's request relates to this task.",

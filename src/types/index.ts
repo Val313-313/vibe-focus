@@ -20,6 +20,7 @@ export interface Task {
   abandonedAt: string | null;
   abandonReason: string | null;
   switchCount: number;
+  worker: string | null;  // which worker/tab owns this task (multi-tab support)
 }
 
 export interface ProjectScope {
@@ -66,7 +67,8 @@ export interface VibeFocusState {
   version: 1;
   projectName: string;
   projectScope: ProjectScope | null;
-  activeTaskId: string | null;
+  activeTaskId: string | null;           // backwards compat: default worker
+  activeWorkers: Record<string, string>; // worker name → task ID (multi-tab)
   nextTaskNumber: number;
   tasks: Task[];
   notes: Note[];

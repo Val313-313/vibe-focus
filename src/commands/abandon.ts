@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { readState, writeState } from '../core/state.js';
-import { getActiveTask, updateTask } from '../core/task.js';
+import { resolveActiveTask, cleanupWorkers, updateTask } from '../core/task.js';
 import { now } from '../utils/time.js';
 import { success, error, info } from '../ui/output.js';
 
@@ -8,12 +8,14 @@ export const abandonCommand = new Command('abandon')
   .description('Abandon the current active task')
   .option('--reason <reason>', 'Reason for abandoning')
   .option('--backlog', 'Move back to backlog instead of abandoning')
+  .option('--worker <name>', 'Abandon the task for a specific worker/tab')
   .action((opts) => {
     let state = readState();
-    const task = getActiveTask(state);
+    const worker: string | undefined = opts.worker ?? process.env.VF_WORKER;
+    const task = resolveActiveTask(state, worker);
 
     if (!task) {
-      error('No active task to abandon.');
+      error(worker ? `No active task for worker "${worker}".` : 'No active task to abandon.');
       return;
     }
 
@@ -24,11 +26,12 @@ export const abandonCommand = new Command('abandon')
       status: newStatus,
       abandonedAt: opts.backlog ? null : timestamp,
       abandonReason: opts.reason ?? null,
+      worker: null,
     });
 
     state = {
       ...state,
-      activeTaskId: null,
+      ...cleanupWorkers(state, task.id, worker),
       currentSession: null,
       focusEvents: [
         ...state.focusEvents,

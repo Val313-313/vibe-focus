@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { readState, writeState } from '../core/state.js';
-import { getTask, getActiveTask, updateTask } from '../core/task.js';
+import { getTask, resolveActiveTask, updateTask } from '../core/task.js';
 import { evaluateSwitch } from '../core/guardian.js';
 import { now } from '../utils/time.js';
 import { success, error, printFocusCard, printGuardian, info } from '../ui/output.js';
@@ -11,9 +11,11 @@ export const switchCommand = new Command('switch')
   .option('--force', 'Override guardian pushback')
   .option('--yolo', 'Override even strong pushback')
   .option('--reason <reason>', 'Reason for switching')
+  .option('--worker <name>', 'Switch within a specific worker/tab')
   .action((id, opts) => {
     let state = readState();
     const target = getTask(state, id);
+    const worker: string | undefined = opts.worker ?? process.env.VF_WORKER;
 
     if (!target) {
       error(`Task ${id} not found.`);
@@ -25,7 +27,7 @@ export const switchCommand = new Command('switch')
       return;
     }
 
-    const active = getActiveTask(state);
+    const active = resolveActiveTask(state, worker);
 
     if (!active) {
       info('No active task. Use "vf start" instead.');
@@ -50,17 +52,26 @@ export const switchCommand = new Command('switch')
     state = updateTask(state, active.id, {
       status: 'backlog',
       switchCount: active.switchCount + 1,
+      worker: null,
     });
 
     // Start target
     state = updateTask(state, id, {
       status: 'active',
       startedAt: target.startedAt ?? timestamp,
+      worker: worker ?? null,
     });
+
+    // Update worker tracking
+    const newWorkers = { ...state.activeWorkers };
+    if (worker) {
+      newWorkers[worker] = id;
+    }
 
     state = {
       ...state,
-      activeTaskId: id,
+      activeTaskId: worker ? state.activeTaskId : id,
+      activeWorkers: newWorkers,
       currentSession: { taskId: id, startedAt: timestamp, endedAt: null },
       focusEvents: [
         ...state.focusEvents,
@@ -72,7 +83,7 @@ export const switchCommand = new Command('switch')
 
     writeState(state);
 
-    success(`Switched from ${active.id} to ${id}`);
+    success(`Switched from ${active.id} to ${id}` + (worker ? ` [worker: ${worker}]` : ''));
     if (opts.reason) {
       console.log(`  Reason: ${opts.reason}`);
     }

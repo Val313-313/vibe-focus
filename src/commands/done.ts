@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { readState, writeState } from '../core/state.js';
-import { getActiveTask, updateTask, criteriaProgress } from '../core/task.js';
+import { resolveActiveTask, cleanupWorkers, updateTask, criteriaProgress } from '../core/task.js';
 import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
 import { now, elapsedMinutes, formatDuration } from '../utils/time.js';
 import { success, error, warn, info } from '../ui/output.js';
@@ -12,12 +12,17 @@ import type { StructuredContextFields } from './context.js';
 export const doneCommand = new Command('done')
   .description('Complete the current active task')
   .option('--force', 'Skip criteria check')
+  .option('--worker <name>', 'Complete the task for a specific worker/tab')
   .action((opts) => {
     let state = readState();
-    const task = getActiveTask(state);
+    const worker: string | undefined = opts.worker ?? process.env.VF_WORKER;
+    const task = resolveActiveTask(state, worker);
 
     if (!task) {
-      error('No active task. Use "vf start <id>" to begin one.');
+      error(worker
+        ? `No active task for worker "${worker}". Use "vf start <id> --worker ${worker}" to begin one.`
+        : 'No active task. Use "vf start <id>" to begin one.'
+      );
       return;
     }
 
@@ -46,7 +51,7 @@ export const doneCommand = new Command('done')
 
     state = {
       ...state,
-      activeTaskId: null,
+      ...cleanupWorkers(state, task.id, worker),
       currentSession: null,
       focusEvents: [
         ...state.focusEvents,

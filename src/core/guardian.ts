@@ -28,7 +28,7 @@ export function evaluateSwitch(
     return {
       allowed: false,
       severity: 'block',
-      message: `Du bist ${Math.round(completionPercent)}% fertig mit "${currentTask.title}". Nur noch ${remaining} Kriterium${remaining > 1 ? 'en' : ''} offen!`,
+      message: `Du bist ${Math.round(completionPercent)}% fertig mit "${currentTask.title}". Nur noch ${remaining} ${remaining > 1 ? 'Kriterien' : 'Kriterium'} offen!`,
       suggestion: 'Mach die restlichen Kriterien fertig. Du bist fast da.',
       overrideFlag: '--force',
     };

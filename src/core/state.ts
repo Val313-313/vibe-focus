@@ -36,6 +36,12 @@ export function readState(): VibeFocusState {
   // Backwards compat: add session contexts if missing
   if (!state.sessionContexts) state.sessionContexts = [];
   if (!state.nextContextNumber) state.nextContextNumber = 1;
+  // Backwards compat: add activeWorkers if missing
+  if (!state.activeWorkers) state.activeWorkers = {};
+  // Backwards compat: add worker field to tasks if missing
+  for (const t of state.tasks) {
+    if (t.worker === undefined) t.worker = null;
+  }
   return state;
 }
 
@@ -58,6 +64,7 @@ export function createEmptyState(projectName: string): VibeFocusState {
     projectName,
     projectScope: null,
     activeTaskId: null,
+    activeWorkers: {},
     nextTaskNumber: 1,
     tasks: [],
     notes: [],

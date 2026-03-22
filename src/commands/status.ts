@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { Command } from 'commander';
 import { readState } from '../core/state.js';
-import { getActiveTask, criteriaProgress } from '../core/task.js';
+import { getActiveTask, getAllActiveWorkers, criteriaProgress } from '../core/task.js';
 import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
 import { elapsedMinutes, formatDuration } from '../utils/time.js';
 
@@ -154,6 +154,22 @@ export const statusCommand = new Command('status')
       }
     }
 
+    // ── Active Workers Section (multi-tab) ──
+    const activeWorkers = getAllActiveWorkers(state);
+    if (activeWorkers.length > 0) {
+      lines.push(sectionHeader('ACTIVE WORKERS', W));
+      lines.push(boxEmpty(W));
+      for (const { worker, task: wTask } of activeWorkers) {
+        const { met: wMet, total: wTotal } = criteriaProgress(wTask);
+        const wPct = wTotal > 0 ? Math.round((wMet / wTotal) * 100) : 0;
+        lines.push(boxRow(
+          cB(worker.padEnd(12)) + d('→ ') + gB(wTask.id) + d(' ') + wTask.title.slice(0, 25) +
+          d('  ') + g(`${wPct}%`),
+          W
+        ));
+      }
+    }
+
     // ── Active Task Section ──
     lines.push(sectionHeader('ACTIVE TASK', W));
     lines.push(boxEmpty(W));
@@ -162,8 +178,9 @@ export const statusCommand = new Command('status')
       const { met, total: critTotal } = criteriaProgress(active);
       const elapsed = active.startedAt ? elapsedMinutes(active.startedAt) : 0;
       const percent = critTotal > 0 ? Math.round((met / critTotal) * 100) : 0;
+      const workerTag = active.worker ? d(` [${active.worker}]`) : '';
 
-      lines.push(boxRow(gB('>> ') + b(active.id.toUpperCase()) + d(' :: ') + cB(active.title), W));
+      lines.push(boxRow(gB('>> ') + b(active.id.toUpperCase()) + d(' :: ') + cB(active.title) + workerTag, W));
       lines.push(boxRow(
         d('   ELAPSED ') + g(formatDuration(elapsed).padEnd(8)) +
         d('SWITCHES ') + (active.switchCount > 0 ? r(String(active.switchCount)) : g('0')) +
@@ -180,6 +197,8 @@ export const statusCommand = new Command('status')
           lines.push(boxRow('  ' + icon + text, W));
         }
       }
+    } else if (activeWorkers.length > 0) {
+      lines.push(boxRow(d('>> ') + d('No default active task') + d('  |  ') + c('Workers active above'), W));
     } else {
       lines.push(boxRow(y('>> ') + d('NO ACTIVE TASK') + d('   |   ') + d('run ') + c('vf start <id>') + d(' to begin'), W));
     }
