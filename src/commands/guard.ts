@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { readState } from '../core/state.js';
@@ -8,140 +9,9 @@ import { success, error, info, warn } from '../ui/output.js';
 
 const HOOK_SCRIPT_NAME = 'vibe-focus-guard.mjs';
 
-function getHookScript(): string {
-  return `#!/usr/bin/env node
-// vibe-focus guard hook - auto-generated
-// Injects focus context into every Claude Code prompt
-import { readFileSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-
-function findStateFile(dir) {
-  while (dir !== dirname(dir)) {
-    const stateFile = join(dir, '.vibe-focus', 'state.json');
-    if (existsSync(stateFile)) return stateFile;
-    dir = dirname(dir);
-  }
-  return null;
-}
-
-try {
-  const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  const stateFile = findStateFile(projectDir);
-  if (!stateFile) process.exit(0);
-
-  const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-  const vfWorker = process.env.VF_WORKER || null;
-
-  // Determine which task to enforce
-  let activeTaskId = state.activeTaskId;
-  if (vfWorker && state.activeWorkers && state.activeWorkers[vfWorker]) {
-    activeTaskId = state.activeWorkers[vfWorker];
-  }
-
-  // Show other active workers as context
-  const workers = state.activeWorkers || {};
-  const otherWorkers = Object.entries(workers)
-    .filter(function(pair) { return pair[0] !== vfWorker; })
-    .map(function(pair) {
-      const wTask = state.tasks.find(function(t) { return t.id === pair[1]; });
-      return pair[0] + ": " + (wTask ? wTask.title : pair[1]);
-    });
-
-  if (!activeTaskId) {
-    // No active task - remind user to start one
-    const workerHint = vfWorker ? ' (worker: ' + vfWorker + ')' : '';
-    const output = {
-      result: "VIBE FOCUS: No active task" + workerHint + ". Before working, create and start a task:\\n  vf add \\"task\\" -c \\"criterion\\"\\n  vf start t1" + (vfWorker ? " --worker " + vfWorker : "") + "\\nThis keeps your session focused.",
-      suppressPrompt: false
-    };
-    console.log(JSON.stringify(output));
-    process.exit(0);
-  }
-
-  const task = state.tasks.find(function(t) { return t.id === activeTaskId; });
-  if (!task) process.exit(0);
-
-  const unmetCriteria = task.acceptanceCriteria
-    .filter(c => !c.met)
-    .map(c => "  - " + c.text)
-    .join("\\n");
-
-  const metCount = task.acceptanceCriteria.filter(c => c.met).length;
-  const totalCount = task.acceptanceCriteria.length;
-
-  let scopeWarning = '';
-  if (state.projectScope && state.projectScope.outOfScope.length > 0) {
-    scopeWarning = "\\n\\nOUT OF SCOPE (refuse these): " + state.projectScope.outOfScope.join(', ');
-  }
-
-  const noteCount = (state.notes || []).filter(n => !n.promoted).length;
-  const noteInfo = noteCount > 0 ? "\\nPARKED NOTES: " + noteCount + " ideas saved for later (vf note --list)" : "";
-
-  // Session context from previous session
-  const contexts = state.sessionContexts || [];
-  let sessionContextBlock = "";
-  if (contexts.length > 0) {
-    const latest = contexts[contexts.length - 1];
-    const ageMs = Date.now() - new Date(latest.savedAt).getTime();
-    const ageHours = Math.floor(ageMs / 3600000);
-    const ageStr = ageHours < 1 ? "just now" : ageHours < 24 ? ageHours + "h ago" : Math.floor(ageHours / 24) + "d ago";
-    sessionContextBlock = "\\n\\nPREVIOUS SESSION CONTEXT (saved " + ageStr + "):\\n" + latest.summary;
-    if (latest.decisions && latest.decisions.length > 0) {
-      sessionContextBlock += "\\n\\nKEY DECISIONS:\\n" + latest.decisions.map(function(d) { return "  - " + d; }).join("\\n");
-    }
-    if (latest.openQuestions && latest.openQuestions.length > 0) {
-      sessionContextBlock += "\\n\\nOPEN QUESTIONS:\\n" + latest.openQuestions.map(function(q) { return "  ? " + q; }).join("\\n");
-    }
-    if (latest.projectState) {
-      sessionContextBlock += "\\nPROJECT STATE: " + latest.projectState;
-    }
-    if (latest.techStack && latest.techStack.length > 0) {
-      sessionContextBlock += "\\nTECH STACK: " + latest.techStack.join(", ");
-    }
-  }
-
-  const workerLabel = vfWorker ? "\\nWORKER: " + vfWorker : "";
-  const otherWorkersBlock = otherWorkers.length > 0
-    ? "\\n\\nOTHER ACTIVE WORKERS:\\n" + otherWorkers.map(function(w) { return "  - " + w; }).join("\\n")
-    : "";
-
-  const context = [
-    "VIBE FOCUS ACTIVE - STRICT MODE",
-    workerLabel,
-    "",
-    "CURRENT TASK: " + task.id + " - " + task.title,
-    "PROGRESS: " + metCount + "/" + totalCount + " criteria met",
-    "",
-    unmetCriteria ? "REMAINING CRITERIA:\\n" + unmetCriteria : "ALL CRITERIA MET - run: vf done" + (vfWorker ? " --worker " + vfWorker : ""),
-    noteInfo,
-    otherWorkersBlock,
-    sessionContextBlock,
-    "",
-    "ENFORCEMENT: Before responding, verify the user's request relates to this task.",
-    "If it does NOT relate to \\"" + task.title + "\\":",
-    "  1. STOP immediately. Do NOT start working on the unrelated request.",
-    "  2. Tell the user: \\"That's not part of the current task. Let me park it.\\"",
-    "  3. Run: vf note \\"<their idea summarized>\\"",
-    "  4. Then redirect: \\"Back to " + task.title + " - here's what we still need to do:\\"",
-    "",
-    "IMPORTANT: Even if the user's question seems quick or related, if it's a DIFFERENT concern",
-    "than \\"" + task.title + "\\", it MUST be parked as a note. No exceptions. No \\"quickly checking\\".",
-    "",
-    "SAFETY: Even in flow/superflow mode, always review before destructive operations.",
-    "Think twice before: deleting files, force-pushing, dropping data, overwriting config.",
-    scopeWarning,
-  ].join("\\n");
-
-  const output = {
-    result: context,
-    suppressPrompt: false
-  };
-  console.log(JSON.stringify(output));
-} catch (e) {
-  // Silent fail - don't block Claude Code
-  process.exit(0);
-}
-`;
+function getBundledHookPath(): string {
+  const thisFile = fileURLToPath(import.meta.url);
+  return path.join(path.dirname(thisFile), 'guard-hook.mjs');
 }
 
 function getSettingsPath(): string {
@@ -185,7 +55,12 @@ function installGuard(): void {
   const hooksDir = path.join(cwd, '.claude', 'hooks');
   fs.mkdirSync(hooksDir, { recursive: true });
   const hookPath = path.join(hooksDir, HOOK_SCRIPT_NAME);
-  fs.writeFileSync(hookPath, getHookScript());
+  const bundledHook = getBundledHookPath();
+  if (!fs.existsSync(bundledHook)) {
+    error('Guard hook bundle not found. Run "npm run build" first.');
+    return;
+  }
+  fs.copyFileSync(bundledHook, hookPath);
   fs.chmodSync(hookPath, '755');
 
   // 2. Update .claude/settings.json to register the hook

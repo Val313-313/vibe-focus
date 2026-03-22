@@ -13,4 +13,11 @@ export default defineConfig([
     format: ['esm'],
     dts: true,
   },
+  {
+    entry: { 'guard-hook': 'src/hook/guard-hook.ts' },
+    format: ['esm'],
+    banner: { js: '#!/usr/bin/env node' },
+    noExternal: [/.*/],
+    outExtension: () => ({ js: '.mjs' }),
+  },
 ]);
