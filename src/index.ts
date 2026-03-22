@@ -16,6 +16,7 @@ import { flowCommand, superflowCommand } from './commands/flow.js';
 import { noteCommand } from './commands/note.js';
 import { contextCommand } from './commands/context.js';
 import { historyCommand } from './commands/history.js';
+import { register as registerTeam } from './team/register.js';
 
 const program = new Command();
 
@@ -42,6 +43,7 @@ program.addCommand(superflowCommand);
 program.addCommand(noteCommand);
 program.addCommand(contextCommand);
 program.addCommand(historyCommand);
+registerTeam(program);
 // Default to status when no command given
 program.action(() => {
   try {
