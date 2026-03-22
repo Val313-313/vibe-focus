@@ -8,6 +8,8 @@ import { success, error, warn, info } from '../ui/output.js';
 import { getFlowMode, disableFlowSilent } from './flow.js';
 import { saveContext } from './context.js';
 import type { StructuredContextFields } from './context.js';
+import { fireHeartbeat } from '../cloud/core/heartbeat.js';
+import { fireCloudActivity } from '../cloud/core/api.js';
 
 export const doneCommand = new Command('done')
   .description('Complete the current active task')
@@ -60,6 +62,8 @@ export const doneCommand = new Command('done')
     };
 
     writeState(state);
+    fireHeartbeat({ status: 'idle' });
+    fireCloudActivity({ type: 'task_completed', message: `Completed ${task.id}: "${task.title}"` });
 
     // Auto-save session context
     const lastCtx = state.sessionContexts.length > 0

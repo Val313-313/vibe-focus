@@ -118,3 +118,44 @@ export {
 
 // Team registration
 export { register as registerTeam } from './team/register.js';
+
+// Cloud types
+export type {
+  CloudConfig,
+  HeartbeatPayload,
+  HeartbeatResult,
+  CloudResult,
+  CloudPresenceRow,
+  CloudMemberRow,
+  CloudActivityRow,
+  CloudSessionRow,
+  ActivityPayload,
+  SupabaseQueryResult,
+} from './cloud/types.js';
+
+// Cloud state
+export {
+  readCloudConfig,
+  writeCloudConfig,
+  isCloudLinked,
+  clearCloudAuth,
+  isValidUUID,
+  isValidHttpsUrl,
+} from './cloud/core/cloud-state.js';
+
+// Cloud heartbeat
+export {
+  buildHeartbeatPayload,
+  sendHeartbeat,
+  fireHeartbeat,
+} from './cloud/core/heartbeat.js';
+
+// Cloud API (PostgREST)
+export {
+  supabaseQuery,
+  supabaseInsert,
+  fireCloudActivity,
+} from './cloud/core/api.js';
+
+// Cloud registration
+export { registerCloud } from './cloud/register.js';

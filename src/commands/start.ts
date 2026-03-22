@@ -4,6 +4,8 @@ import { getTask, resolveActiveTask, updateTask, unmetDependencies, resolveWorke
 import { evaluateSwitch } from '../core/guardian.js';
 import { now } from '../utils/time.js';
 import { success, error, printFocusCard, printGuardian, info } from '../ui/output.js';
+import { fireHeartbeat } from '../cloud/core/heartbeat.js';
+import { fireCloudActivity } from '../cloud/core/api.js';
 
 export const startCommand = new Command('start')
   .description('Start working on a task')
@@ -91,6 +93,8 @@ export const startCommand = new Command('start')
     };
 
     writeState(state);
+    fireHeartbeat();
+    fireCloudActivity({ type: 'task_started', message: `Started ${id}: "${task.title}"` });
 
     const updated = state.tasks.find((t) => t.id === id)!;
     success(`Started task ${id}` + (worker ? ` [worker: ${worker}]` : ''));

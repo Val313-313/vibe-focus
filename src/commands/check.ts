@@ -3,6 +3,8 @@ import chalk from 'chalk';
 import { readState, writeState } from '../core/state.js';
 import { getActiveTask, updateTask } from '../core/task.js';
 import { success, error, info } from '../ui/output.js';
+import { fireHeartbeat } from '../cloud/core/heartbeat.js';
+import { fireCloudActivity } from '../cloud/core/api.js';
 
 export const checkCommand = new Command('check')
   .description('Mark acceptance criteria as met on the active task')
@@ -47,12 +49,15 @@ export const checkCommand = new Command('check')
 
     state = updateTask(state, task.id, { acceptanceCriteria: updatedCriteria });
     writeState(state);
+    fireHeartbeat();
 
     const checked = criteriaIds.filter((id) =>
       task.acceptanceCriteria.some((c) => c.id === id)
     );
     const met = updatedCriteria.filter((c) => c.met).length;
     const total = updatedCriteria.length;
+
+    fireCloudActivity({ type: 'criterion_checked', message: `Checked ${checked.length} criteria on ${task.id}` });
 
     success(`Checked ${checked.length} criteria (${met}/${total} total)`);
 

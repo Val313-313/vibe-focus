@@ -2,6 +2,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { Command } from 'commander';
 import { writePresence } from '../core/presence.js';
 import { getUsername } from '../core/team-state.js';
+import { fireHeartbeat } from '../../cloud/core/heartbeat.js';
 
 export const syncCommand = new Command('sync')
   .description('Sync team presence files via Git (commit + pull + push)')
@@ -76,6 +77,8 @@ export const syncCommand = new Command('sync')
         log('  Sync incomplete - will retry next time.');
       }
     }
+
+    fireHeartbeat();
 
     log('');
     log('  Sync complete.');
