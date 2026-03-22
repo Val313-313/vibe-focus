@@ -43,6 +43,13 @@ your AI agent didn't stop you. it did exactly what you asked. every single time.
 - **park it** — new idea mid-task? noted. not now.
 - **hook it** — plugs into Claude Code. every prompt gets checked.
 
+## what's new
+
+- **team collaboration** — `vibe-focus-team` shares focus state across your team. see who's working on what, sync tasks, and inject coworker context into guard hooks. solo focus, team awareness.
+- **focus history** — `vf history` shows a sparkline of your focus score over time. streaks, trends, weekly averages. all in the terminal.
+- **multi-tab workers** — `vf start t2 --worker api` runs parallel tasks in separate terminal tabs. each worker tracks independently.
+- **extension API** — `import { loadState } from 'vibe-focus'` — build plugins on top of the core. powers `vibe-focus-team`.
+
 ## 30 seconds to focus
 
 ```bash
@@ -203,6 +210,56 @@ vf dash
 | `f` | Force switch (override) |
 | `q` | Quit |
 
+### 9. focus history
+
+see your focus over time:
+
+```bash
+vf history
+```
+
+```
+Focus History (14 days)
+Score: ▁▃▅▇▇█▅▃▅▇██▇█
+       M T W T F S S M T W T F S S
+Streak: 5 days | Avg: 78 | Best: 95
+```
+
+```bash
+vf history -n 30    # last 30 days
+vf history --json   # export as JSON
+```
+
+### 10. multi-tab workers
+
+working on frontend and backend at the same time? separate tabs, separate focus:
+
+```bash
+# Terminal 1
+vf start t1 --worker ui
+# works on t1, tracked as "ui" worker
+
+# Terminal 2
+vf start t2 --worker api
+# works on t2, tracked as "api" worker
+```
+
+each worker has its own task and guardian. no cross-contamination.
+
+### 11. extension API
+
+build on top of vibe-focus:
+
+```typescript
+import { loadState, loadScope } from 'vibe-focus';
+
+const state = loadState();            // full project state
+const scope = loadScope();            // project scope
+const active = state.tasks.find(t => t.status === 'active');
+```
+
+powers the `vibe-focus-team` package for shared team workflows. publish your own extensions via npm.
+
 ## all commands
 
 ### core workflow
@@ -233,7 +290,7 @@ vf dash
 | `vf note --promote <id>` | Promote note to task |
 | `vf abandon` | Abandon task (score penalty) |
 
-### productivity
+### workflow & productivity
 
 | Command | What it does |
 |---------|-------------|
@@ -243,6 +300,19 @@ vf dash
 | `vf context "summary"` | Save session context |
 | `vf context --show` | Show last saved context |
 | `vf prompt` | Generate focused prompt for Claude Code |
+| `vf history` | Focus history sparkline |
+| `vf history -n 30` | Last 30 days of history |
+| `vf history --json` | Export history as JSON |
+
+### advanced
+
+| Command | What it does |
+|---------|-------------|
+| `vf start <id> --worker <name>` | Start task in a named worker tab |
+| `vf done --worker <name>` | Complete task for a specific worker |
+| `vf-team who` | See who's working on what (team package) |
+| `vf-team sync` | Sync team focus state |
+| `import { loadState } from 'vibe-focus'` | Extension API — build plugins on top |
 
 ## focus score
 
@@ -271,6 +341,7 @@ daily score. 0-100. no mercy.
 - **Any AI agent** — via `vf prompt` and `vf scope --rules`
 - **Solo devs** who want to ship, not spiral
 - **Teams** preventing scope creep in AI-assisted sessions
+- **Your own tools** — Extension API (`lib.ts`) lets you build on top of vibe-focus
 
 ## build it. ship it. learn.
 

@@ -4,11 +4,58 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>vibe-focus -- Stop context collapse. Ship one thing at a time.</title>
-  <meta name="description" content="Focus Guardian CLI for vibe coding sessions. Prevents context collapse when working with AI coding agents like Claude Code.">
-  <meta name="keywords" content="vibe coding, focus, CLI, Claude Code, AI coding, context switching, developer tools">
-  <meta property="og:title" content="vibe-focus">
-  <meta property="og:description" content="Stop context collapse. Ship one thing at a time.">
+  <meta name="description" content="Focus Guardian CLI for vibe coding sessions. Prevents context collapse when working with AI coding agents like Claude Code. Team collaboration, focus history, multi-tab workers, and extension API.">
+  <meta name="keywords" content="vibe coding, focus, CLI, Claude Code, AI coding, context switching, developer tools, vibe-focus, focus guardian, team collaboration, TypeScript, Node.js, productivity, AI agent tools">
+  <meta name="author" content="Phil Stranger">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://philstranger.com/projects/vibe-focus.html">
+
+  <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
+  <meta property="og:url" content="https://philstranger.com/projects/vibe-focus.html">
+  <meta property="og:title" content="vibe-focus — Stop context collapse. Ship one thing at a time.">
+  <meta property="og:description" content="Focus Guardian CLI for vibe coding sessions with AI agents. Pushback, scope control, Claude Code hooks, team collaboration, and more.">
+  <meta property="og:site_name" content="Phil Stranger">
+  <meta property="og:locale" content="en_US">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://philstranger.com/projects/vibe-focus.html">
+  <meta name="twitter:title" content="vibe-focus — Stop context collapse. Ship one thing at a time.">
+  <meta name="twitter:description" content="Focus Guardian CLI for vibe coding sessions with AI agents. Pushback, scope control, Claude Code hooks, team collaboration, and more.">
+
+  <!-- Geo Tags -->
+  <meta name="geo.region" content="CH">
+  <meta name="geo.placename" content="Zurich">
+  <meta name="geo.position" content="47.3769;8.5417">
+  <meta name="ICBM" content="47.3769, 8.5417">
+
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "vibe-focus",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "macOS, Linux",
+    "description": "Focus Guardian CLI for vibe coding sessions. Prevents context collapse when working with AI coding agents like Claude Code.",
+    "url": "https://philstranger.com/projects/vibe-focus.html",
+    "downloadUrl": "https://www.npmjs.com/package/vibe-focus",
+    "author": {
+      "@type": "Person",
+      "name": "Phil Stranger",
+      "url": "https://philstranger.com"
+    },
+    "license": "https://opensource.org/licenses/MIT",
+    "programmingLanguage": "TypeScript",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    }
+  }
+  </script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -179,7 +226,11 @@
        HERO SECTION
        ======================================== */
     .hero {
-      padding: 100px 0 80px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 0;
       text-align: center;
       position: relative;
     }
@@ -195,12 +246,33 @@
         0 0 10px var(--green-glow),
         0 0 40px rgba(0, 255, 65, 0.15);
       animation: flicker 4s ease-in-out infinite;
-      margin-bottom: 24px;
+      margin-bottom: 32px;
     }
 
     @media (min-width: 640px) {
       .ascii-art {
         font-size: 13px;
+      }
+    }
+
+    @media (min-width: 1200px) {
+      .ascii-art {
+        font-size: 16px;
+        margin-bottom: 40px;
+      }
+
+      .tagline {
+        font-size: 22px !important;
+        margin-bottom: 12px !important;
+      }
+
+      .tagline-sub {
+        font-size: 15px !important;
+        margin-bottom: 40px !important;
+      }
+
+      .install-box code {
+        font-size: 17px !important;
       }
     }
 
@@ -739,6 +811,122 @@
     }
 
     /* ========================================
+       NEW BADGE
+       ======================================== */
+    .new-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--bg);
+      background: var(--cyan);
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-left: 8px;
+      vertical-align: middle;
+      box-shadow: 0 0 8px rgba(0, 204, 255, 0.3);
+    }
+
+    /* ========================================
+       TIER LABELS
+       ======================================== */
+    .tier-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 4px;
+      color: var(--green-dim);
+      font-weight: 600;
+      margin-top: 40px;
+      margin-bottom: 4px;
+    }
+
+    .tier-label::before {
+      content: '// ';
+      color: var(--green-dark);
+    }
+
+    .tier-desc {
+      font-size: 12px;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+
+    .tier-label:first-of-type {
+      margin-top: 0;
+    }
+
+    /* ========================================
+       WHAT'S NEW SECTION
+       ======================================== */
+    .whats-new-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+    }
+
+    .whats-new-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(0, 204, 255, 0.2);
+      border-radius: 6px;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s;
+    }
+
+    .whats-new-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    }
+
+    .whats-new-card:hover {
+      border-color: rgba(0, 204, 255, 0.4);
+      box-shadow: 0 0 30px rgba(0, 204, 255, 0.08);
+      transform: translateY(-2px);
+    }
+
+    .whats-new-card h3 {
+      color: var(--cyan);
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .whats-new-card p {
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .whats-new-card .feature-icon {
+      color: var(--cyan);
+      text-shadow: 0 0 10px rgba(0, 204, 255, 0.4);
+    }
+
+    /* ========================================
+       COMMAND TABLE GROUPS
+       ======================================== */
+    .cmd-group-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--green-dim);
+      font-weight: 600;
+      padding: 12px 16px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cmd-group-label::before {
+      content: '// ';
+      color: var(--green-dark);
+    }
+
+    /* ========================================
        RESPONSIVE
        ======================================== */
     @media (max-width: 600px) {
@@ -814,6 +1002,59 @@
     </div>
   </section>
 
+  <!-- ==================== WHAT'S NEW ==================== -->
+  <section id="whats-new">
+    <div class="container">
+      <span class="section-label">latest drops</span>
+      <h2>What's New</h2>
+      <p class="section-desc">
+        Fresh features that just shipped.
+      </p>
+
+      <div class="whats-new-grid">
+        <div class="whats-new-card">
+          <span class="feature-icon">&gt;&lt;</span>
+          <h3>Team Collaboration <span class="new-badge">NEW</span></h3>
+          <p>
+            <code>vibe-focus-team</code> — share focus state across your team.
+            See who's working on what, sync tasks, and inject coworker context
+            into your guard hooks. Solo focus, team awareness.
+          </p>
+        </div>
+
+        <div class="whats-new-card">
+          <span class="feature-icon">~</span>
+          <h3>Focus History <span class="new-badge">NEW</span></h3>
+          <p>
+            Sparkline visualization of your focus score over time.
+            See streaks, trends, and weekly averages.
+            <code>vf history</code> shows it all in one glance.
+          </p>
+        </div>
+
+        <div class="whats-new-card">
+          <span class="feature-icon">||</span>
+          <h3>Multi-Tab Workers <span class="new-badge">NEW</span></h3>
+          <p>
+            Run parallel tasks in separate terminal tabs.
+            Each worker tracks its own task independently.
+            <code>vf start t2 --worker api</code> and go.
+          </p>
+        </div>
+
+        <div class="whats-new-card">
+          <span class="feature-icon">&lt;/&gt;</span>
+          <h3>Extension API <span class="new-badge">NEW</span></h3>
+          <p>
+            <code>import { loadState } from 'vibe-focus'</code> —
+            build plugins and extensions on top of vibe-focus.
+            Powers the upcoming <code>vibe-focus-team</code> package.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ==================== THE PROBLEM ==================== -->
   <section id="problem">
     <div class="container">
@@ -855,6 +1096,9 @@
         Everything you need to stay in the zone and stop your AI agent from going rogue.
       </p>
 
+      <!-- TIER 1: CORE -->
+      <div class="tier-label">Tier 1: Core</div>
+      <p class="tier-desc">The heart of vibe-focus. What makes it work.</p>
       <div class="features-grid">
         <div class="feature-card">
           <span class="feature-icon">[!]</span>
@@ -863,26 +1107,6 @@
             Pushes back when you try to switch tasks before finishing.
             Blocks context-switching with friction, not force.
             Override with <code>--force</code> or <code>--yolo</code> -- but you'll see the score hit.
-          </p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">{&nbsp;}</span>
-          <h3>Project Scope</h3>
-          <p>
-            Define what's in and what's out before you start.
-            Try to add a task outside scope? Blocked.
-            Keeps both you and your AI agent on the rails.
-          </p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">[x]</span>
-          <h3>Acceptance Criteria</h3>
-          <p>
-            Every task gets clear, checkable criteria.
-            No more "I think it's done?" -- you know exactly when to stop.
-            Claude uses these as its definition of done.
           </p>
         </div>
 
@@ -897,25 +1121,30 @@
         </div>
 
         <div class="feature-card">
-          <span class="feature-icon">[=]</span>
-          <h3>Interactive Dashboard</h3>
+          <span class="feature-icon">[x]</span>
+          <h3>Acceptance Criteria</h3>
           <p>
-            Full TUI dashboard with keyboard navigation.
-            Navigate tasks, check criteria, copy focused prompts,
-            and force switches -- all from the terminal.
+            Every task gets clear, checkable criteria.
+            No more "I think it's done?" -- you know exactly when to stop.
+            Claude uses these as its definition of done.
           </p>
         </div>
 
         <div class="feature-card">
-          <span class="feature-icon">%</span>
-          <h3>Focus Score</h3>
+          <span class="feature-icon">{&nbsp;}</span>
+          <h3>Project Scope</h3>
           <p>
-            Daily score from 0-100 tracking your focus habits.
-            +20 for completing a task, -10 for switching, -5 for overriding.
-            Build better habits over time.
+            Define what's in and what's out before you start.
+            Try to add a task outside scope? Blocked.
+            Keeps both you and your AI agent on the rails.
           </p>
         </div>
+      </div>
 
+      <!-- TIER 2: PRODUCTIVITY -->
+      <div class="tier-label">Tier 2: Productivity</div>
+      <p class="tier-desc">Stay in the flow. Ship without friction.</p>
+      <div class="features-grid">
         <div class="feature-card">
           <span class="feature-icon">~</span>
           <h3>Session Memory</h3>
@@ -928,11 +1157,21 @@
 
         <div class="feature-card">
           <span class="feature-icon">&gt;&gt;</span>
-          <h3>Flow Mode</h3>
+          <h3>Flow Mode / Superflow</h3>
           <p>
             Claude asks permission for every file edit. Every. Single. One.
             <code>vf flow</code> auto-approves until your task is done.
             No interruptions, just shipping.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">[=]</span>
+          <h3>Interactive Dashboard</h3>
+          <p>
+            Full TUI dashboard with keyboard navigation.
+            Navigate tasks, check criteria, copy focused prompts,
+            and force switches -- all from the terminal.
           </p>
         </div>
 
@@ -942,6 +1181,66 @@
           <p>
             Great idea. Wrong moment. <code>vf note</code> parks it without
             breaking your focus. Promote it to a real task later — or let it rot.
+          </p>
+        </div>
+      </div>
+
+      <!-- TIER 3: ANALYTICS -->
+      <div class="tier-label">Tier 3: Analytics</div>
+      <p class="tier-desc">See your patterns. Build better habits.</p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <span class="feature-icon">%</span>
+          <h3>Focus Score</h3>
+          <p>
+            Daily score from 0-100 tracking your focus habits.
+            +20 for completing a task, -10 for switching, -5 for overriding.
+            Build better habits over time.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">~</span>
+          <h3>Focus History <span class="new-badge">NEW</span></h3>
+          <p>
+            Sparkline visualization of your focus over time.
+            Streaks, trends, and weekly averages — all in the terminal.
+            <code>vf history</code> to see where you've been.
+          </p>
+        </div>
+      </div>
+
+      <!-- TIER 4: POWER USER -->
+      <div class="tier-label">Tier 4: Power User</div>
+      <p class="tier-desc">Team workflows, parallel tabs, and extensibility.</p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <span class="feature-icon">&gt;&lt;</span>
+          <h3>Team Collaboration <span class="new-badge">NEW</span></h3>
+          <p>
+            <code>vibe-focus-team</code> — share focus state with your team.
+            See who's working on what via <code>vf-team who</code>.
+            Coworker context auto-injects into guard hooks.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">||</span>
+          <h3>Multi-Tab Workers <span class="new-badge">NEW</span></h3>
+          <p>
+            Run parallel tasks in separate terminal tabs.
+            <code>vf start t2 --worker api</code> assigns the tab.
+            Each worker tracks independently, merges on done.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&lt;/&gt;</span>
+          <h3>Extension API <span class="new-badge">NEW</span></h3>
+          <p>
+            <code>import { loadState } from 'vibe-focus'</code> —
+            build plugins on top of the core.
+            Powers <code>vibe-focus-team</code> for shared team workflows.
           </p>
         </div>
       </div>
@@ -1238,32 +1537,44 @@ ENFORCEMENT: If request does NOT relate
           </tr>
         </thead>
         <tbody>
+          <tr><td colspan="2" class="cmd-group-label">Core Workflow</td></tr>
           <tr><td><code>vf init</code></td><td>Initialize vibe-focus in your project</td></tr>
           <tr><td><code>vf scope</code></td><td>Define or view project scope</td></tr>
           <tr><td><code>vf add "task" -c "criteria"</code></td><td>Add a task with acceptance criteria</td></tr>
           <tr><td><code>vf start &lt;id&gt;</code></td><td>Start working on a task</td></tr>
           <tr><td><code>vf check &lt;criterion-id&gt;</code></td><td>Mark a criterion as met</td></tr>
           <tr><td><code>vf done</code></td><td>Complete the current task</td></tr>
-          <tr><td><code>vf status</code></td><td>Show focus dashboard</td></tr>
           <tr><td><code>vf list</code></td><td>List all tasks</td></tr>
-          <tr><td><code>vf switch &lt;id&gt;</code></td><td>Switch task (guardian pushback!)</td></tr>
-          <tr><td><code>vf abandon</code></td><td>Abandon current task</td></tr>
-          <tr><td><code>vf note "idea"</code></td><td>Park an idea without losing focus</td></tr>
-          <tr><td><code>vf note --list</code></td><td>Show parked notes (parking lot)</td></tr>
-          <tr><td><code>vf note --promote &lt;id&gt;</code></td><td>Promote a note to a backlog task</td></tr>
-          <tr><td><code>vf prompt</code></td><td>Generate focused prompt for Claude Code</td></tr>
-          <tr><td><code>vf scope --rules</code></td><td>Write focus rules to .claude/rules/</td></tr>
+          <tr><td><code>vf status</code></td><td>Show focus dashboard</td></tr>
+
+          <tr><td colspan="2" class="cmd-group-label">Focus Protection</td></tr>
           <tr><td><code>vf guard --install</code></td><td>Install Claude Code enforcement hooks</td></tr>
           <tr><td><code>vf guard --status</code></td><td>Check if guard is active</td></tr>
           <tr><td><code>vf guard --remove</code></td><td>Remove Claude Code hooks</td></tr>
+          <tr><td><code>vf switch &lt;id&gt;</code></td><td>Switch task (guardian pushback!)</td></tr>
+          <tr><td><code>vf scope --rules</code></td><td>Write focus rules to .claude/rules/</td></tr>
+          <tr><td><code>vf note "idea"</code></td><td>Park an idea without losing focus</td></tr>
+          <tr><td><code>vf note --list</code></td><td>Show parked notes (parking lot)</td></tr>
+          <tr><td><code>vf note --promote &lt;id&gt;</code></td><td>Promote a note to a backlog task</td></tr>
+          <tr><td><code>vf abandon</code></td><td>Abandon current task (score penalty)</td></tr>
+
+          <tr><td colspan="2" class="cmd-group-label">Workflow &amp; Productivity</td></tr>
+          <tr><td><code>vf dash</code></td><td>Interactive TUI dashboard</td></tr>
+          <tr><td><code>vf flow --on</code></td><td>Auto-approve tools until current task is done</td></tr>
+          <tr><td><code>vf superflow --on</code></td><td>Auto-approve tools until ALL tasks done</td></tr>
           <tr><td><code>vf context "summary"</code></td><td>Save session context — survives terminal death</td></tr>
           <tr><td><code>vf context -i</code></td><td>Interactive mode — walks you through what to save</td></tr>
           <tr><td><code>vf context --show</code></td><td>Show last saved session context</td></tr>
           <tr><td><code>vf context --list</code></td><td>List all saved session contexts</td></tr>
           <tr><td><code>vf context --clear</code></td><td>Clear all saved contexts</td></tr>
-          <tr><td><code>vf flow --on</code></td><td>Auto-approve tools until current task is done</td></tr>
-          <tr><td><code>vf superflow --on</code></td><td>Auto-approve tools until ALL tasks done</td></tr>
-          <tr><td><code>vf dash</code></td><td>Interactive TUI dashboard</td></tr>
+          <tr><td><code>vf prompt</code></td><td>Generate focused prompt for Claude Code</td></tr>
+          <tr><td><code>vf history</code></td><td>Focus history sparkline visualization</td></tr>
+          <tr><td><code>vf history -n 30</code></td><td>Show last 30 days of focus history</td></tr>
+          <tr><td><code>vf history --json</code></td><td>Export focus history as JSON</td></tr>
+
+          <tr><td colspan="2" class="cmd-group-label">Advanced</td></tr>
+          <tr><td><code>vf start &lt;id&gt; --worker &lt;name&gt;</code></td><td>Start task in a named worker tab</td></tr>
+          <tr><td><code>vf done --worker &lt;name&gt;</code></td><td>Complete task for a specific worker</td></tr>
         </tbody>
       </table>
     </div>
