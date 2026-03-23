@@ -9,13 +9,16 @@ import {
   isTeamInitialized,
 } from '../core/team-state.js';
 import { validateUsername } from '../core/validation.js';
+import { resolveAgent } from '../../agents/resolve.js';
+import { AGENT_CONFIGS } from '../../agents/types.js';
 import type { TeamConfig, LocalConfig } from '../types.js';
 
 export const initCommand = new Command('init')
   .description('Initialize team mode for this vibe-focus project')
   .requiredOption('--user <name>', 'Your username (only letters, numbers, hyphens, underscores)')
   .option('--team-name <name>', 'Team name', 'team')
-  .action((opts) => {
+  .option('--skip-guard', 'Skip auto-installing the focus guard')
+  .action(async (opts) => {
     // Validate username before anything else
     try {
       validateUsername(opts.user);
@@ -69,6 +72,22 @@ export const initCommand = new Command('init')
     console.log(`  Username:  ${opts.user}`);
     console.log(`  Machine:   ${os.hostname()}`);
     console.log(`  Team:      ${opts.teamName}`);
+
+    // Auto-install focus guard for detected AI agent
+    if (!opts.skipGuard) {
+      try {
+        const { installGuard } = await import('../../commands/guard.js');
+        const agent = resolveAgent();
+        const config = AGENT_CONFIGS[agent];
+        console.log('');
+        console.log(`  Guard:     auto-installing for ${config.displayName}...`);
+        installGuard(agent);
+      } catch {
+        console.log('');
+        console.log('  Guard:     skipped (run "vf guard --install" manually)');
+      }
+    }
+
     console.log('');
     console.log('Next steps:');
     console.log('  1. Commit the team config:  git add .vibe-focus/team/ && git commit -m "Init vibe-focus-team"');

@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { readState, writeState } from '../core/state.js';
 import { resolveActiveTask, cleanupWorkers, updateTask, criteriaProgress, resolveWorker } from '../core/task.js';
 import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
+import { getDailyHistory, getStreak } from '../core/history.js';
 import { now, elapsedMinutes, formatDuration } from '../utils/time.js';
 import { success, error, warn, info } from '../ui/output.js';
 import { getFlowMode, disableFlowSilent } from './flow.js';
@@ -91,7 +92,12 @@ export const doneCommand = new Command('done')
     console.log(`  Time spent: ${formatDuration(elapsed)}`);
 
     const score = calculateDailyScore(state);
+    const history = getDailyHistory(state);
+    const streak = getStreak(history);
     console.log(`  Focus score: ${score} (${scoreLabel(score)})`);
+    if (streak > 0) {
+      console.log(`  Streak: ${streak}d ${'🔥'.repeat(Math.min(streak, 5))}`);
+    }
 
     // Check flow mode
     const flowMode = getFlowMode();

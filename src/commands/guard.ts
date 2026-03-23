@@ -99,7 +99,7 @@ export const guardCommand = new Command('guard')
     }
   });
 
-function installGuard(agent: AgentType): void {
+export function installGuard(agent: AgentType): void {
   const state = readState();
   const cwd = process.cwd();
   const config = AGENT_CONFIGS[agent];
