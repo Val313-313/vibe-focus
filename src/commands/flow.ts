@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { success, info, warn } from '../ui/output.js';
+import { success, info, warn, error } from '../ui/output.js';
+import { resolveAgent } from '../agents/resolve.js';
+import { AGENT_CONFIGS } from '../agents/types.js';
 
 export type FlowMode = 'task' | 'super' | false;
 
@@ -76,6 +78,14 @@ export function disableFlowSilent(): boolean {
 }
 
 function enableFlow(mode: 'task' | 'super', extras: string[]): void {
+  const agent = resolveAgent();
+  if (agent !== 'claude') {
+    const name = AGENT_CONFIGS[agent].displayName;
+    warn(`Flow mode requires Claude Code (.claude/settings.json). Current agent: ${name}.`);
+    info('Flow mode auto-approves tool permissions, which is Claude Code-specific.');
+    return;
+  }
+
   const settings = readFlowSettings();
   let allowedTools = [...DEFAULT_ALLOWED_TOOLS];
 
@@ -117,7 +127,7 @@ function enableFlow(mode: 'task' | 'super', extras: string[]): void {
   console.log(color('  ║') + colorB(`   ${title}`.padEnd(43)) + color('║'));
   console.log(color('  ╠═══════════════════════════════════════════╣'));
   console.log(color('  ║') + '                                           ' + color('║'));
-  console.log(color('  ║') + chalk.dim('  Claude Code will now auto-approve:       ') + color('║'));
+  console.log(color('  ║') + chalk.dim('  Auto-approve active tools:               ') + color('║'));
   console.log(color('  ║') + '                                           ' + color('║'));
   console.log(color('  ║') + chalk.cyan('  [✓]') + chalk.dim(' Read, Write, Edit files           ') + color('║'));
   console.log(color('  ║') + chalk.cyan('  [✓]') + chalk.dim(' Search (Glob, Grep)               ') + color('║'));
@@ -135,7 +145,7 @@ function enableFlow(mode: 'task' | 'super', extras: string[]): void {
     console.log(color('  ║') + '                                           ' + color('║'));
   }
 
-  console.log(color('  ║') + chalk.yellow('  Restart Claude Code to activate.        ') + color('║'));
+  console.log(color('  ║') + chalk.yellow('  Restart your AI agent to activate.      ') + color('║'));
   console.log(color('  ║') + '                                           ' + color('║'));
   console.log(color('  ╚═══════════════════════════════════════════╝'));
   console.log('');
@@ -160,8 +170,8 @@ function disableFlow(): void {
   writeFlowSettings(settings);
 
   success('Flow mode disabled.');
-  info('Claude Code will ask for permission again.');
-  info('Restart Claude Code to apply changes.');
+  info('Your AI agent will ask for permission again.');
+  info('Restart your AI agent to apply changes.');
 }
 
 function showStatus(): void {

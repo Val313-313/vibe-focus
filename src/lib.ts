@@ -1,5 +1,17 @@
 // Public API for extensions and library consumers
 
+// Agent types and resolution
+export type { AgentType, AgentConfig } from './agents/types.js';
+export { AGENT_CONFIGS } from './agents/types.js';
+export { resolveAgent, isValidAgent } from './agents/resolve.js';
+
+// Config
+export type { VibeFocusConfig } from './core/config.js';
+export { readConfig, writeConfig, updateConfig } from './core/config.js';
+
+// Rules generator (renamed from claude-md)
+export { generateRulesMd, generateClaudeMd } from './generators/rules-md.js';
+
 // Types
 export type {
   Task,

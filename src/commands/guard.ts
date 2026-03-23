@@ -4,10 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { readState } from '../core/state.js';
-import { generateClaudeMd } from '../generators/claude-md.js';
+import { generateRulesMd } from '../generators/rules-md.js';
+import { resolveAgent } from '../agents/resolve.js';
+import { AGENT_CONFIGS, type AgentType } from '../agents/types.js';
+import { updateConfig } from '../core/config.js';
 import { success, error, info, warn } from '../ui/output.js';
 
 const HOOK_SCRIPT_NAME = 'vibe-focus-guard.mjs';
+const MARKER_START = '<!-- vibe-focus:start -->';
+const MARKER_END = '<!-- vibe-focus:end -->';
 
 function getBundledHookPath(): string {
   const thisFile = fileURLToPath(import.meta.url);
@@ -32,145 +37,292 @@ function writeSettings(settings: any): void {
   fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2));
 }
 
-export const guardCommand = new Command('guard')
-  .description('Install/remove Claude Code focus enforcement hooks')
-  .option('--install', 'Install the focus guardian hook into Claude Code')
-  .option('--remove', 'Remove the focus guardian hook')
-  .option('--status', 'Check if guard is active')
-  .action((opts) => {
-    if (opts.install) {
-      installGuard();
-    } else if (opts.remove) {
-      removeGuard();
+function appendWithMarkers(filePath: string, content: string): void {
+  const wrapped = `${MARKER_START}\n${content}\n${MARKER_END}`;
+
+  if (fs.existsSync(filePath)) {
+    let existing = fs.readFileSync(filePath, 'utf-8');
+    const startIdx = existing.indexOf(MARKER_START);
+    const endIdx = existing.indexOf(MARKER_END);
+
+    if (startIdx >= 0 && endIdx >= 0) {
+      existing =
+        existing.slice(0, startIdx) +
+        wrapped +
+        existing.slice(endIdx + MARKER_END.length);
     } else {
-      checkStatus();
+      existing += '\n\n' + wrapped;
+    }
+    fs.writeFileSync(filePath, existing);
+  } else {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, wrapped + '\n');
+  }
+}
+
+function removeMarkers(filePath: string): boolean {
+  if (!fs.existsSync(filePath)) return false;
+
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const startIdx = content.indexOf(MARKER_START);
+  const endIdx = content.indexOf(MARKER_END);
+
+  if (startIdx < 0 || endIdx < 0) return false;
+
+  const before = content.slice(0, startIdx).replace(/\n\n$/, '');
+  const after = content.slice(endIdx + MARKER_END.length);
+  const cleaned = (before + after).trim();
+
+  if (cleaned.length === 0) {
+    fs.unlinkSync(filePath);
+  } else {
+    fs.writeFileSync(filePath, cleaned + '\n');
+  }
+  return true;
+}
+
+export const guardCommand = new Command('guard')
+  .description('Install/remove AI agent focus enforcement')
+  .option('--install', 'Install the focus guardian for your AI agent')
+  .option('--remove', 'Remove the focus guardian')
+  .option('--status', 'Check if guard is active')
+  .option('--agent <type>', 'AI agent type: claude, cursor, copilot, windsurf, generic')
+  .action((opts) => {
+    const agent = resolveAgent(opts.agent);
+
+    if (opts.install) {
+      installGuard(agent);
+    } else if (opts.remove) {
+      removeGuard(agent);
+    } else {
+      checkStatus(agent);
     }
   });
 
-function installGuard(): void {
+function installGuard(agent: AgentType): void {
   const state = readState();
   const cwd = process.cwd();
+  const config = AGENT_CONFIGS[agent];
+  const rulesContent = generateRulesMd(state);
 
-  // 1. Write hook script
-  const hooksDir = path.join(cwd, '.claude', 'hooks');
-  fs.mkdirSync(hooksDir, { recursive: true });
-  const hookPath = path.join(hooksDir, HOOK_SCRIPT_NAME);
-  const bundledHook = getBundledHookPath();
-  if (!fs.existsSync(bundledHook)) {
-    error('Guard hook bundle not found. Run "npm run build" first.');
+  // Save agent choice to config
+  updateConfig({ agent });
+
+  if (agent === 'generic') {
+    // Generic: print rules to stdout
+    console.log('');
+    info(`Agent: ${config.displayName} — printing rules to stdout.`);
+    console.log('');
+    console.log(rulesContent);
+    console.log('');
+    info('Copy the above rules into your AI agent\'s system prompt or rules file.');
     return;
   }
-  fs.copyFileSync(bundledHook, hookPath);
-  fs.chmodSync(hookPath, '755');
 
-  // 2. Update .claude/settings.json to register the hook
-  const settings = readSettings();
-  if (!settings.hooks) settings.hooks = {};
-  if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
-
-  // Check if already installed
-  const hookCommand = `node "${hookPath}"`;
-  const alreadyInstalled = settings.hooks.UserPromptSubmit.some(
-    (entry: any) => entry.hooks?.some((h: any) => h.command?.includes(HOOK_SCRIPT_NAME))
-  );
-
-  if (!alreadyInstalled) {
-    settings.hooks.UserPromptSubmit.push({
-      hooks: [{
-        type: 'command',
-        command: hookCommand,
-      }],
-    });
+  if (agent === 'copilot') {
+    // Copilot: append with markers to .github/copilot-instructions.md
+    const filePath = path.join(cwd, config.rulesDir, config.rulesFile);
+    appendWithMarkers(filePath, rulesContent);
+    printInstallBox(agent, { rules: `${config.rulesDir}/${config.rulesFile}` });
+    return;
   }
 
-  writeSettings(settings);
-
-  // 3. Write/update rules file
-  const rulesDir = path.join(cwd, '.claude', 'rules');
+  // Claude and Cursor: write to dedicated rules file
+  const rulesDir = path.join(cwd, config.rulesDir);
   fs.mkdirSync(rulesDir, { recursive: true });
-  const rulesContent = generateClaudeMd(state);
-  fs.writeFileSync(path.join(rulesDir, 'vibe-focus.md'), rulesContent);
+  fs.writeFileSync(path.join(rulesDir, config.rulesFile), rulesContent);
+
+  if (agent === 'claude') {
+    // Claude: also install hook + register in settings.json
+    const hooksDir = path.join(cwd, config.hookDir!);
+    fs.mkdirSync(hooksDir, { recursive: true });
+    const hookPath = path.join(hooksDir, HOOK_SCRIPT_NAME);
+    const bundledHook = getBundledHookPath();
+    if (!fs.existsSync(bundledHook)) {
+      error('Guard hook bundle not found. Run "npm run build" first.');
+      return;
+    }
+    fs.copyFileSync(bundledHook, hookPath);
+    fs.chmodSync(hookPath, '755');
+
+    const settings = readSettings();
+    if (!settings.hooks) settings.hooks = {};
+    if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
+
+    const hookCommand = `node "${hookPath}"`;
+    const alreadyInstalled = settings.hooks.UserPromptSubmit.some(
+      (entry: any) => entry.hooks?.some((h: any) => h.command?.includes(HOOK_SCRIPT_NAME))
+    );
+
+    if (!alreadyInstalled) {
+      settings.hooks.UserPromptSubmit.push({
+        hooks: [{
+          type: 'command',
+          command: hookCommand,
+        }],
+      });
+    }
+
+    writeSettings(settings);
+    printInstallBox(agent, {
+      hook: `${config.hookDir}/${HOOK_SCRIPT_NAME}`,
+      rules: `${config.rulesDir}/${config.rulesFile}`,
+      config: config.settingsFile!,
+    });
+    return;
+  }
+
+  // Cursor
+  printInstallBox(agent, { rules: `${config.rulesDir}/${config.rulesFile}` });
+}
+
+function printInstallBox(agent: AgentType, paths: { hook?: string; rules: string; config?: string }): void {
+  const config = AGENT_CONFIGS[agent];
+  const maxWidth = 45;
 
   console.log('');
-  console.log(chalk.greenBright('  ╔═══════════════════════════════════════════╗'));
-  console.log(chalk.greenBright('  ║') + chalk.bold.green('   FOCUS GUARDIAN INSTALLED              ') + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ╠═══════════════════════════════════════════╣'));
-  console.log(chalk.greenBright('  ║') + '                                           ' + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + chalk.dim('  Claude Code wird jetzt bei JEDEM        ') + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + chalk.dim('  Prompt deinen aktuellen Task prüfen     ') + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + chalk.dim('  und dich zurückweisen wenn du abweichst. ') + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + '                                           ' + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + chalk.cyan('  Hook:  ') + chalk.dim('.claude/hooks/' + HOOK_SCRIPT_NAME) + '  ' + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + chalk.cyan('  Rules: ') + chalk.dim('.claude/rules/vibe-focus.md') + '     ' + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + chalk.cyan('  Config:') + chalk.dim('.claude/settings.json') + '          ' + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + '                                           ' + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + chalk.yellow('  Starte Claude Code neu um zu aktivieren ') + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ║') + '                                           ' + chalk.greenBright('║'));
-  console.log(chalk.greenBright('  ╚═══════════════════════════════════════════╝'));
+  console.log(chalk.greenBright('  ╔' + '═'.repeat(maxWidth) + '╗'));
+  console.log(chalk.greenBright('  ║') + chalk.bold.green(`   FOCUS GUARDIAN INSTALLED`.padEnd(maxWidth)) + chalk.greenBright('║'));
+  console.log(chalk.greenBright('  ╠' + '═'.repeat(maxWidth) + '╣'));
+  console.log(chalk.greenBright('  ║') + ''.padEnd(maxWidth) + chalk.greenBright('║'));
+  console.log(chalk.greenBright('  ║') + chalk.dim(`  Agent: ${config.displayName}`.padEnd(maxWidth)) + chalk.greenBright('║'));
+  console.log(chalk.greenBright('  ║') + ''.padEnd(maxWidth) + chalk.greenBright('║'));
+
+  if (paths.hook) {
+    console.log(chalk.greenBright('  ║') + chalk.cyan('  Hook:  ') + chalk.dim(paths.hook.padEnd(maxWidth - 9)) + chalk.greenBright('║'));
+  }
+  console.log(chalk.greenBright('  ║') + chalk.cyan('  Rules: ') + chalk.dim(paths.rules.padEnd(maxWidth - 9)) + chalk.greenBright('║'));
+  if (paths.config) {
+    console.log(chalk.greenBright('  ║') + chalk.cyan('  Config:') + chalk.dim(paths.config.padEnd(maxWidth - 9)) + chalk.greenBright('║'));
+  }
+
+  console.log(chalk.greenBright('  ║') + ''.padEnd(maxWidth) + chalk.greenBright('║'));
+
+  if (config.supportsHook) {
+    console.log(chalk.greenBright('  ║') + chalk.yellow(`  Restart ${config.displayName} to activate.`.padEnd(maxWidth)) + chalk.greenBright('║'));
+  }
+
+  console.log(chalk.greenBright('  ║') + ''.padEnd(maxWidth) + chalk.greenBright('║'));
+  console.log(chalk.greenBright('  ╚' + '═'.repeat(maxWidth) + '╝'));
   console.log('');
   info('Remove with: vf guard --remove');
 }
 
-function removeGuard(): void {
+function removeGuard(agent: AgentType): void {
   const cwd = process.cwd();
+  const config = AGENT_CONFIGS[agent];
 
-  // Remove hook script
-  const hookPath = path.join(cwd, '.claude', 'hooks', HOOK_SCRIPT_NAME);
-  if (fs.existsSync(hookPath)) {
-    fs.unlinkSync(hookPath);
+  if (agent === 'generic') {
+    info('Generic agent has no files to remove.');
+    return;
   }
 
-  // Remove from settings
-  const settings = readSettings();
-  if (settings.hooks?.UserPromptSubmit) {
-    settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
-      (entry: any) => !entry.hooks?.some((h: any) => h.command?.includes(HOOK_SCRIPT_NAME))
-    );
-    if (settings.hooks.UserPromptSubmit.length === 0) {
-      delete settings.hooks.UserPromptSubmit;
+  if (agent === 'copilot') {
+    const filePath = path.join(cwd, config.rulesDir, config.rulesFile);
+    if (removeMarkers(filePath)) {
+      success('Focus Guardian rules removed from copilot-instructions.md.');
+    } else {
+      info('No vibe-focus rules found in copilot-instructions.md.');
     }
-    if (Object.keys(settings.hooks).length === 0) {
-      delete settings.hooks;
-    }
+    return;
   }
-  writeSettings(settings);
 
-  // Remove rules file
-  const rulesPath = path.join(cwd, '.claude', 'rules', 'vibe-focus.md');
+  // Claude and Cursor: remove the rules file
+  const rulesPath = path.join(cwd, config.rulesDir, config.rulesFile);
   if (fs.existsSync(rulesPath)) {
     fs.unlinkSync(rulesPath);
   }
 
-  success('Focus Guardian hook removed.');
-  info('Claude Code will no longer enforce focus.');
+  if (agent === 'claude') {
+    // Remove hook script
+    const hookPath = path.join(cwd, config.hookDir!, HOOK_SCRIPT_NAME);
+    if (fs.existsSync(hookPath)) {
+      fs.unlinkSync(hookPath);
+    }
+
+    // Remove from settings
+    const settings = readSettings();
+    if (settings.hooks?.UserPromptSubmit) {
+      settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
+        (entry: any) => !entry.hooks?.some((h: any) => h.command?.includes(HOOK_SCRIPT_NAME))
+      );
+      if (settings.hooks.UserPromptSubmit.length === 0) {
+        delete settings.hooks.UserPromptSubmit;
+      }
+      if (Object.keys(settings.hooks).length === 0) {
+        delete settings.hooks;
+      }
+    }
+    writeSettings(settings);
+  }
+
+  success(`Focus Guardian removed for ${config.displayName}.`);
+  if (config.supportsHook) {
+    info(`${config.displayName} will no longer enforce focus.`);
+  }
 }
 
-function checkStatus(): void {
+function checkStatus(agent: AgentType): void {
   const cwd = process.cwd();
-  const hookPath = path.join(cwd, '.claude', 'hooks', HOOK_SCRIPT_NAME);
-  const rulesPath = path.join(cwd, '.claude', 'rules', 'vibe-focus.md');
-  const settings = readSettings();
+  const config = AGENT_CONFIGS[agent];
 
-  const hookExists = fs.existsSync(hookPath);
+  console.log('');
+  console.log(chalk.bold(`Focus Guardian Status (${config.displayName}):`));
+  console.log('');
+
+  if (agent === 'generic') {
+    info('Generic agent: use "vf guard --install" to print rules.');
+    console.log('');
+    return;
+  }
+
+  if (agent === 'copilot') {
+    const filePath = path.join(cwd, config.rulesDir, config.rulesFile);
+    const hasRules = fs.existsSync(filePath) &&
+      fs.readFileSync(filePath, 'utf-8').includes(MARKER_START);
+    console.log(`  Rules:  ${hasRules ? chalk.green('present in copilot-instructions.md') : chalk.red('not found')}`);
+    console.log('');
+    if (hasRules) {
+      console.log(chalk.greenBright(`  GUARD IS ACTIVE - ${config.displayName} will enforce focus.`));
+    } else {
+      info('Guard is not installed. Run "vf guard --install" to activate.');
+    }
+    console.log('');
+    return;
+  }
+
+  // Claude, Cursor, Windsurf — dedicated rules file
+  const rulesPath = path.join(cwd, config.rulesDir, config.rulesFile);
   const rulesExist = fs.existsSync(rulesPath);
-  const hookRegistered = settings.hooks?.UserPromptSubmit?.some(
-    (entry: any) => entry.hooks?.some((h: any) => h.command?.includes(HOOK_SCRIPT_NAME))
-  );
-
-  console.log('');
-  console.log(chalk.bold('Focus Guardian Status:'));
-  console.log('');
-  console.log(`  Hook script:  ${hookExists ? chalk.green('installed') : chalk.red('not installed')}`);
-  console.log(`  Hook config:  ${hookRegistered ? chalk.green('registered') : chalk.red('not registered')}`);
   console.log(`  Rules file:   ${rulesExist ? chalk.green('present') : chalk.red('missing')}`);
-  console.log('');
 
-  if (hookExists && hookRegistered && rulesExist) {
-    console.log(chalk.greenBright('  GUARD IS ACTIVE - Claude Code will enforce focus.'));
-  } else if (hookExists || rulesExist) {
-    warn('Partial installation detected. Run "vf guard --install" to fix.');
+  if (agent === 'claude') {
+    const hookPath = path.join(cwd, config.hookDir!, HOOK_SCRIPT_NAME);
+    const settings = readSettings();
+    const hookExists = fs.existsSync(hookPath);
+    const hookRegistered = settings.hooks?.UserPromptSubmit?.some(
+      (entry: any) => entry.hooks?.some((h: any) => h.command?.includes(HOOK_SCRIPT_NAME))
+    );
+
+    console.log(`  Hook script:  ${hookExists ? chalk.green('installed') : chalk.red('not installed')}`);
+    console.log(`  Hook config:  ${hookRegistered ? chalk.green('registered') : chalk.red('not registered')}`);
+    console.log('');
+
+    if (hookExists && hookRegistered && rulesExist) {
+      console.log(chalk.greenBright(`  GUARD IS ACTIVE - ${config.displayName} will enforce focus.`));
+    } else if (hookExists || rulesExist) {
+      warn('Partial installation detected. Run "vf guard --install" to fix.');
+    } else {
+      info('Guard is not installed. Run "vf guard --install" to activate.');
+    }
   } else {
-    info('Guard is not installed. Run "vf guard --install" to activate.');
+    // Cursor, Windsurf
+    console.log('');
+    if (rulesExist) {
+      console.log(chalk.greenBright(`  GUARD IS ACTIVE - ${config.displayName} will enforce focus.`));
+    } else {
+      info('Guard is not installed. Run "vf guard --install" to activate.');
+    }
   }
   console.log('');
 }

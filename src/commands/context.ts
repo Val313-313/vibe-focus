@@ -16,7 +16,7 @@ export interface StructuredContextFields {
 }
 
 export const contextCommand = new Command('context')
-  .description('Save and restore session context across Claude Code sessions')
+  .description('Save and restore session context across AI coding sessions')
   .argument('[summary...]', 'Session summary to save')
   .option('--show', 'Show the most recent saved context')
   .option('--list', 'List all saved session contexts')
@@ -192,7 +192,7 @@ export function saveContext(
   console.log(gD('  ╚═══════════════════════════════════════════╝'));
   console.log('');
 
-  info('This context will auto-inject into your next Claude Code session via the guard hook.');
+  info('This context will auto-inject into your next AI coding session via the guard hook.');
   info(`${state.sessionContexts.length}/${MAX_CONTEXTS} context slots used.`);
 }
 

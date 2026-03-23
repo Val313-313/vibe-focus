@@ -102,14 +102,14 @@ export const doneCommand = new Command('done')
       disableFlowSilent();
       console.log('');
       console.log(chalk.yellow('  Flow mode auto-disabled (task completed).'));
-      info('Restart Claude Code to apply. Re-enable with: vf flow --on');
+      info('Restart your AI agent to apply. Re-enable with: vf flow --on');
     } else if (flowMode === 'super') {
       // Superflow: check if all tasks are done
       if (backlog.length === 0) {
         disableFlowSilent();
         console.log('');
         console.log(chalk.cyanBright('  Superflow auto-disabled (all tasks done).'));
-        info('Restart Claude Code to apply.');
+        info('Restart your AI agent to apply.');
       } else {
         console.log('');
         console.log(chalk.cyan(`  Superflow active: ${backlog.length} task${backlog.length > 1 ? 's' : ''} remaining.`));

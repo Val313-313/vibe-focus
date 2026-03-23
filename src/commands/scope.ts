@@ -4,22 +4,30 @@ import chalk from 'chalk';
 import { Command } from 'commander';
 import { readState, writeState } from '../core/state.js';
 import { getActiveTask, criteriaProgress } from '../core/task.js';
-import { generateClaudeMd } from '../generators/claude-md.js';
+import { generateRulesMd } from '../generators/rules-md.js';
+import { resolveAgent } from '../agents/resolve.js';
+import { AGENT_CONFIGS } from '../agents/types.js';
 import { success, error, info } from '../ui/output.js';
 import type { ProjectScope } from '../types/index.js';
 
+const MARKER_START = '<!-- vibe-focus:start -->';
+const MARKER_END = '<!-- vibe-focus:end -->';
+
 export const scopeCommand = new Command('scope')
-  .description('Define project scope or generate CLAUDE.md rules')
+  .description('Define project scope or generate rules for your AI agent')
   .option('--define', 'Interactively define or update project scope')
   .option('--purpose <purpose>', 'Set project purpose')
   .option('--in <items...>', 'Add items to in-scope')
   .option('--out <items...>', 'Add items to out-of-scope')
   .option('--boundary <items...>', 'Add scope boundaries')
   .option('--show', 'Show current project scope')
-  .option('--rules', 'Write to .claude/rules/vibe-focus.md')
+  .option('--rules', 'Write rules file for AI agent')
   .option('--claude-md', 'Append to CLAUDE.md')
+  .option('--agent <type>', 'AI agent type: claude, cursor, copilot, windsurf, generic')
   .action((opts) => {
     let state = readState();
+    const agent = resolveAgent(opts.agent);
+    const agentConfig = AGENT_CONFIGS[agent];
 
     // Show current scope
     if (opts.show || (!opts.define && !opts.purpose && !opts.in && !opts.out && !opts.boundary && !opts.rules && !opts.claudeMd)) {
@@ -63,11 +71,11 @@ export const scopeCommand = new Command('scope')
         }
       }
 
-      // Generate CLAUDE.md output
+      // Generate rules output
       if (opts.rules || opts.claudeMd) {
-        const content = generateClaudeMd(state);
+        const content = generateRulesMd(state);
         if (opts.rules) {
-          writeRulesFile(content);
+          writeAgentRules(content, agent);
         }
         if (opts.claudeMd) {
           appendClaudeMd(content);
@@ -119,44 +127,63 @@ export const scopeCommand = new Command('scope')
 
     // Generate files if requested
     if (opts.rules || opts.claudeMd) {
-      const content = generateClaudeMd(state);
-      if (opts.rules) writeRulesFile(content);
+      const content = generateRulesMd(state);
+      if (opts.rules) writeAgentRules(content, agent);
       if (opts.claudeMd) appendClaudeMd(content);
     }
   });
 
-function writeRulesFile(content: string): void {
-  const dir = path.join(process.cwd(), '.claude', 'rules');
+function writeAgentRules(content: string, agent: ReturnType<typeof resolveAgent>): void {
+  const config = AGENT_CONFIGS[agent];
+
+  if (agent === 'generic') {
+    console.log('');
+    console.log(content);
+    console.log('');
+    info('Copy the above rules into your AI agent\'s system prompt.');
+    return;
+  }
+
+  if (agent === 'copilot') {
+    const filePath = path.join(process.cwd(), config.rulesDir, config.rulesFile);
+    appendWithMarkers(filePath, content);
+    success(`Written to ${config.rulesDir}/${config.rulesFile}`);
+    return;
+  }
+
+  // Claude and Cursor: write dedicated file
+  const dir = path.join(process.cwd(), config.rulesDir);
   fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, 'vibe-focus.md');
+  const filePath = path.join(dir, config.rulesFile);
   fs.writeFileSync(filePath, content);
   success(`Written to ${filePath}`);
 }
 
-function appendClaudeMd(content: string): void {
-  const filePath = path.join(process.cwd(), 'CLAUDE.md');
-  const marker = '<!-- vibe-focus:start -->';
-  const endMarker = '<!-- vibe-focus:end -->';
-  const wrapped = `${marker}\n${content}\n${endMarker}`;
+function appendWithMarkers(filePath: string, content: string): void {
+  const wrapped = `${MARKER_START}\n${content}\n${MARKER_END}`;
 
   if (fs.existsSync(filePath)) {
     let existing = fs.readFileSync(filePath, 'utf-8');
-    const startIdx = existing.indexOf(marker);
-    const endIdx = existing.indexOf(endMarker);
+    const startIdx = existing.indexOf(MARKER_START);
+    const endIdx = existing.indexOf(MARKER_END);
 
     if (startIdx >= 0 && endIdx >= 0) {
       existing =
         existing.slice(0, startIdx) +
         wrapped +
-        existing.slice(endIdx + endMarker.length);
+        existing.slice(endIdx + MARKER_END.length);
     } else {
       existing += '\n\n' + wrapped;
     }
-
     fs.writeFileSync(filePath, existing);
   } else {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, wrapped + '\n');
   }
+}
 
+function appendClaudeMd(content: string): void {
+  const filePath = path.join(process.cwd(), 'CLAUDE.md');
+  appendWithMarkers(filePath, content);
   success(`Written to ${filePath}`);
 }

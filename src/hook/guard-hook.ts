@@ -1,6 +1,6 @@
 // vibe-focus guard hook — bundled by tsup as standalone .mjs
 // Shebang added by tsup banner config
-// Runs on every Claude Code prompt via UserPromptSubmit hook
+// Runs on every AI agent prompt (Claude Code: UserPromptSubmit hook)
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -116,7 +116,7 @@ function readTeamContext(stateDir: string, myUsername: string): TeamContext | nu
 
 // --- Main execution ---
 try {
-  const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectDir = process.env.VF_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const stateFile = findStateFile(projectDir);
   if (!stateFile) process.exit(0);
 
@@ -165,6 +165,6 @@ try {
   const input: GuardInput = { task, worker, scope, noteCount, session, team };
   console.log(JSON.stringify(buildGuardContext(input)));
 } catch {
-  // Silent fail — never block Claude Code
+  // Silent fail — never block the AI agent
   process.exit(0);
 }

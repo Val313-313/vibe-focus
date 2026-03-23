@@ -41,7 +41,7 @@ your AI agent didn't stop you. it did exactly what you asked. every single time.
 - **one task, clear criteria** — no "done" without meeting them.
 - **pushback** — try to switch before finishing? the guardian says no.
 - **park it** — new idea mid-task? noted. not now.
-- **hook it** — plugs into Claude Code. every prompt gets checked.
+- **hook it** — plugs into your AI agent. every prompt gets checked.
 
 ## what's new
 
@@ -60,7 +60,9 @@ vf init
 vf scope --purpose "Build a REST API" --in "endpoints" "auth" --out "frontend" "deployment"
 vf add "User registration" -c "POST /register" "Email validation" "Password hashing" "Returns JWT"
 vf start t1
-vf guard --install
+vf guard --install              # auto-detects agent, or:
+vf guard --install --agent cursor
+vf guard --install --agent copilot
 ```
 
 done. your AI agent now refuses to let you drift.
@@ -138,16 +140,25 @@ vf add "Cart total calculation" -i
 
 yes, the override flag is `--yolo`. you earned it.
 
-### 4. claude code integration
+### 4. AI agent integration
 
-the real thing. `vf guard --install` hooks into Claude Code:
+the real thing. `vf guard --install` hooks into your AI agent:
+
+```bash
+vf guard --install                  # auto-detect (Claude Code if available)
+vf guard --install --agent claude   # Claude Code: hook + rules
+vf guard --install --agent cursor   # Cursor: .cursor/rules/vibe-focus.mdc
+vf guard --install --agent copilot  # Copilot: .github/copilot-instructions.md
+vf guard --install --agent windsurf # Windsurf: .windsurfrules
+vf guard --install --agent generic  # print rules to stdout
+```
 
 - **every prompt** gets checked against your active task
 - **off-task requests** get refused and parked as notes
 - **focus rules** are injected as system context
-- **acceptance criteria** become Claude's definition of done
+- **acceptance criteria** become the agent's definition of done
 
-what Claude sees on every prompt:
+what your AI agent sees on every prompt:
 
 ```
 VIBE FOCUS ACTIVE - STRICT MODE
@@ -280,12 +291,13 @@ powers the `vibe-focus-team` package for shared team workflows. publish your own
 
 | Command | What it does |
 |---------|-------------|
-| `vf guard --install` | Hook into Claude Code (checks every prompt) |
-| `vf guard --remove` | Remove the hook |
+| `vf guard --install` | Install focus guard (auto-detects agent) |
+| `vf guard --install --agent cursor` | Install for Cursor |
+| `vf guard --remove` | Remove the guard |
 | `vf guard --status` | Check if guard is active |
 | `vf switch <id>` | Switch task (guardian pushback!) |
 | `vf scope` | Define/view project scope |
-| `vf scope --rules` | Write rules to `.claude/rules/` |
+| `vf scope --rules` | Write rules for AI agent |
 | `vf note "idea"` | Park an idea without losing focus |
 | `vf note --promote <id>` | Promote note to task |
 | `vf abandon` | Abandon task (score penalty) |
@@ -299,7 +311,7 @@ powers the `vibe-focus-team` package for shared team workflows. publish your own
 | `vf superflow --on` | Auto-approve until ALL tasks done |
 | `vf context "summary"` | Save session context |
 | `vf context --show` | Show last saved context |
-| `vf prompt` | Generate focused prompt for Claude Code |
+| `vf prompt` | Generate focused prompt for AI agent |
 | `vf history` | Focus history sparkline |
 | `vf history -n 30` | Last 30 days of history |
 | `vf history --json` | Export history as JSON |
@@ -337,7 +349,10 @@ daily score. 0-100. no mercy.
 
 ## works with
 
-- **Claude Code** — native hook integration
+- **Claude Code** — native hook integration + flow mode
+- **Cursor** — rules file in `.cursor/rules/`
+- **GitHub Copilot** — instructions in `.github/copilot-instructions.md`
+- **Windsurf** — rules in `.windsurfrules`
 - **Any AI agent** — via `vf prompt` and `vf scope --rules`
 - **Solo devs** who want to ship, not spiral
 - **Teams** preventing scope creep in AI-assisted sessions
