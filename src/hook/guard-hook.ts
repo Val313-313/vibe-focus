@@ -91,28 +91,77 @@ function readTeamContext(stateDir: string, myUsername: string): TeamContext | nu
   for (const wf of workerFiles) {
     try {
       const p = JSON.parse(readFileSync(join(teamWorkersDir, wf), 'utf-8'));
+
+      // Validate required fields to prevent injection from corrupt/malicious files
+      if (typeof p.username !== 'string' || typeof p.lastHeartbeat !== 'string') continue;
       if (p.username === username) continue;
 
       const ageMs = Date.now() - new Date(p.lastHeartbeat).getTime();
+      if (isNaN(ageMs)) continue; // invalid date
       const ageMins = Math.floor(ageMs / 60000);
       if (ageMins > 60) continue; // skip offline
 
       const status = ageMins < 5 ? 'active' : ageMins < 15 ? 'idle' : 'away' as const;
-      const taskInfo = p.taskTitle ? `${p.taskId} - ${p.taskTitle}` : 'idle';
-      const progressInfo = p.progress?.total > 0 ? ` (${p.progress.met}/${p.progress.total})` : '';
+      const taskInfo = typeof p.taskTitle === 'string' ? `${p.taskId} - ${p.taskTitle}` : 'idle';
+      const progressInfo = typeof p.progress?.total === 'number' && p.progress.total > 0
+        ? ` (${p.progress.met}/${p.progress.total})` : '';
 
       coworkers.push({
-        username: p.username,
+        username: String(p.username).slice(0, 50),
         status,
-        taskInfo,
+        taskInfo: String(taskInfo).slice(0, 200),
         progressInfo,
-        activeFiles: p.activeFiles || [],
+        activeFiles: Array.isArray(p.activeFiles)
+          ? p.activeFiles.filter((f: unknown) => typeof f === 'string').slice(0, 50)
+          : [],
       });
     } catch { /* skip corrupt files */ }
   }
 
   if (coworkers.length === 0 && myActiveFiles.length === 0) return null;
   return { coworkers, myActiveFiles };
+}
+
+interface CloudCacheMinimal {
+  version: 1;
+  updatedAt: string;
+  team: Array<{
+    user_id: string;
+    task_id: string | null;
+    task_title: string | null;
+    progress_met: number;
+    progress_total: number;
+    active_files: string[];
+    focus_score: number;
+    status: 'active' | 'idle';
+    last_heartbeat: string;
+    profiles?: { username: string; display_name: string | null };
+  }>;
+  messages: Array<{
+    body: string;
+    created_at: string;
+    profile?: { username: string };
+  }>;
+}
+
+function readCloudCacheForHook(stateDir: string): CloudCacheMinimal | null {
+  const cachePath = join(stateDir, 'cloud-cache.json');
+  if (!existsSync(cachePath)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(cachePath, 'utf-8'));
+    if (raw?.version !== 1 || typeof raw.updatedAt !== 'string') return null;
+
+    // Reject stale cache (>10 min)
+    const ageMs = Date.now() - new Date(raw.updatedAt).getTime();
+    if (isNaN(ageMs) || ageMs > 10 * 60 * 1000) return null;
+
+    // Validate structure
+    if (!Array.isArray(raw.team) || !Array.isArray(raw.messages)) return null;
+
+    return raw as CloudCacheMinimal;
+  } catch {
+    return null;
+  }
 }
 
 interface CloudConfigMinimal {
@@ -127,7 +176,17 @@ function readCloudConfigForHook(stateDir: string): CloudConfigMinimal | null {
   if (!existsSync(cloudPath)) return null;
   try {
     const cfg = JSON.parse(readFileSync(cloudPath, 'utf-8'));
-    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey || !cfg.accessToken || !cfg.projectId) return null;
+    // Validate all required fields are strings
+    if (
+      typeof cfg.supabaseUrl !== 'string' ||
+      typeof cfg.supabaseAnonKey !== 'string' ||
+      typeof cfg.accessToken !== 'string' ||
+      typeof cfg.projectId !== 'string'
+    ) return null;
+
+    // Validate URL format (HTTPS only)
+    if (!cfg.supabaseUrl.startsWith('https://')) return null;
+
     return {
       supabaseUrl: cfg.supabaseUrl,
       supabaseAnonKey: cfg.supabaseAnonKey,
@@ -229,19 +288,67 @@ async function fetchRecentMessages(cloudCfg: CloudConfigMinimal): Promise<TeamMe
         teamUsername = JSON.parse(readFileSync(localConfigPath, 'utf-8')).username || '';
       } catch { /* skip */ }
     }
-    const team = readTeamContext(stateDir, teamUsername);
+    let team = readTeamContext(stateDir, teamUsername);
 
     const scope = state.projectScope?.outOfScope?.length > 0
       ? { outOfScope: state.projectScope.outOfScope }
       : null;
 
-    // Fetch recent team messages from cloud (non-blocking timeout)
+    // Read cloud cache (populated by heartbeat responses) for cloud teammates
+    const cloudCache = readCloudCacheForHook(stateDir);
+
+    // Merge cloud presence into team context (cloud teammates not in local team)
+    if (cloudCache && cloudCache.team.length > 0) {
+      const localUsernames = new Set(team?.coworkers.map(c => c.username) ?? []);
+
+      const cloudCoworkers: TeamMemberContext[] = [];
+      for (const ct of cloudCache.team) {
+        const username = ct.profiles?.username ?? ct.user_id.slice(0, 8);
+        if (localUsernames.has(username)) continue;
+
+        const ageMs = Date.now() - new Date(ct.last_heartbeat).getTime();
+        const ageMins = Math.floor(ageMs / 60000);
+        if (ageMins > 60) continue;
+
+        const status = ageMins < 5 ? 'active' : ageMins < 15 ? 'idle' : 'away' as const;
+        const taskInfo = ct.task_title ? `${ct.task_id} - ${ct.task_title}` : 'idle';
+        const progressInfo = ct.progress_total > 0 ? ` (${ct.progress_met}/${ct.progress_total})` : '';
+
+        cloudCoworkers.push({
+          username,
+          status,
+          taskInfo,
+          progressInfo,
+          activeFiles: ct.active_files || [],
+        });
+      }
+
+      if (cloudCoworkers.length > 0) {
+        if (!team) {
+          team = { coworkers: cloudCoworkers, myActiveFiles: [] };
+        } else {
+          team = { ...team, coworkers: [...team.coworkers, ...cloudCoworkers] };
+        }
+      }
+    }
+
+    // Get messages from cloud cache first, fall back to live fetch
     let messages: TeamMessageContext[] = [];
-    const cloudCfg = readCloudConfigForHook(stateDir);
-    if (cloudCfg) {
-      try {
-        messages = await fetchRecentMessages(cloudCfg);
-      } catch { /* silent — never block the hook */ }
+
+    if (cloudCache && cloudCache.messages.length > 0) {
+      messages = cloudCache.messages.map(m => ({
+        username: m.profile?.username || '?',
+        body: m.body,
+        time: formatMessageAge(m.created_at),
+      })).reverse(); // oldest first
+    } else {
+      // Fallback: fetch directly from Supabase (original behavior)
+      const cloudCfg = readCloudConfigForHook(stateDir);
+      if (cloudCfg) {
+        try {
+          messages = await fetchRecentMessages(cloudCfg);
+        } catch { /* silent — never block the hook */ }
+      }
     }
 
     const input: GuardInput = { task, worker, scope, noteCount, session, team, messages };

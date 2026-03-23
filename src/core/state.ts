@@ -50,7 +50,7 @@ export function readState(): VibeFocusState {
 export function writeState(state: VibeFocusState): void {
   const filePath = getStatePath();
   const tmpPath = filePath + '.tmp';
-  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2));
+  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpPath, filePath);
 }
 
@@ -87,6 +87,6 @@ export function initProject(projectName: string): string {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, '.gitignore'), '*\n');
   const state = createEmptyState(projectName);
-  fs.writeFileSync(path.join(dir, STATE_FILE), JSON.stringify(state, null, 2));
+  fs.writeFileSync(path.join(dir, STATE_FILE), JSON.stringify(state, null, 2), { mode: 0o600 });
   return dir;
 }
