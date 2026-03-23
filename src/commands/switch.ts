@@ -3,7 +3,8 @@ import { readState, writeState } from '../core/state.js';
 import { getTask, resolveActiveTask, updateTask, resolveWorker } from '../core/task.js';
 import { evaluateSwitch } from '../core/guardian.js';
 import { now } from '../utils/time.js';
-import { success, error, printFocusCard, printGuardian, info } from '../ui/output.js';
+import { success, error, printFocusCard, printGuardian, info, printChangeBanner } from '../ui/output.js';
+import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 
 export const switchCommand = new Command('switch')
   .description('Switch to a different task (Focus Guardian will push back!)')
@@ -16,6 +17,11 @@ export const switchCommand = new Command('switch')
     let state = readState();
     const target = getTask(state, id);
     const worker = resolveWorker(opts);
+    const workerKey = worker ?? '__default__';
+
+    // Show cross-tab changes
+    const changes = detectChanges(state, workerKey);
+    printChangeBanner(changes);
 
     if (!target) {
       error(`Task ${id} not found.`);
@@ -75,11 +81,12 @@ export const switchCommand = new Command('switch')
       currentSession: { taskId: id, startedAt: timestamp, endedAt: null },
       focusEvents: [
         ...state.focusEvents,
-        { type: 'switch_away' as const, taskId: active.id, timestamp, details: opts.reason },
-        { type: 'pushback_override' as const, taskId: active.id, timestamp },
-        { type: 'switch_to' as const, taskId: id, timestamp },
+        { type: 'switch_away' as const, taskId: active.id, timestamp, details: opts.reason, worker: workerKey },
+        { type: 'pushback_override' as const, taskId: active.id, timestamp, worker: workerKey },
+        { type: 'switch_to' as const, taskId: id, timestamp, worker: workerKey },
       ],
     };
+    state.workerMeta = stampWorkerMeta(state, workerKey);
 
     writeState(state);
 

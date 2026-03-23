@@ -5,7 +5,8 @@ import { resolveActiveTask, cleanupWorkers, updateTask, criteriaProgress, resolv
 import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
 import { getDailyHistory, getStreak } from '../core/history.js';
 import { now, elapsedMinutes, formatDuration } from '../utils/time.js';
-import { success, error, warn, info } from '../ui/output.js';
+import { success, error, warn, info, printChangeBanner } from '../ui/output.js';
+import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 import { getFlowMode, disableFlowSilent } from './flow.js';
 import { saveContext } from './context.js';
 import type { StructuredContextFields } from './context.js';
@@ -19,7 +20,12 @@ export const doneCommand = new Command('done')
   .action((opts) => {
     let state = readState();
     const worker = resolveWorker(opts);
+    const workerKey = worker ?? '__default__';
     const task = resolveActiveTask(state, worker);
+
+    // Show cross-tab changes
+    const changes = detectChanges(state, workerKey);
+    printChangeBanner(changes);
 
     if (!task) {
       error(worker
@@ -58,9 +64,10 @@ export const doneCommand = new Command('done')
       currentSession: null,
       focusEvents: [
         ...state.focusEvents,
-        { type: 'complete' as const, taskId: task.id, timestamp },
+        { type: 'complete' as const, taskId: task.id, timestamp, worker: workerKey },
       ],
     };
+    state.workerMeta = stampWorkerMeta(state, workerKey);
 
     writeState(state);
     fireHeartbeat({ status: 'idle' });

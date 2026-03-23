@@ -15,6 +15,7 @@ import {
   type SessionMemoryContext,
   type TeamContext,
   type TeamMemberContext,
+  type TeamMessageContext,
 } from './context-builder.js';
 
 function findStateFile(dir: string): string | null {
@@ -114,57 +115,139 @@ function readTeamContext(stateDir: string, myUsername: string): TeamContext | nu
   return { coworkers, myActiveFiles };
 }
 
+interface CloudConfigMinimal {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  accessToken: string;
+  projectId: string;
+}
+
+function readCloudConfigForHook(stateDir: string): CloudConfigMinimal | null {
+  const cloudPath = join(stateDir, 'cloud.json');
+  if (!existsSync(cloudPath)) return null;
+  try {
+    const cfg = JSON.parse(readFileSync(cloudPath, 'utf-8'));
+    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey || !cfg.accessToken || !cfg.projectId) return null;
+    return {
+      supabaseUrl: cfg.supabaseUrl,
+      supabaseAnonKey: cfg.supabaseAnonKey,
+      accessToken: cfg.accessToken,
+      projectId: cfg.projectId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatMessageAge(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+async function fetchRecentMessages(cloudCfg: CloudConfigMinimal): Promise<TeamMessageContext[]> {
+  const params = [
+    `project_id=eq.${cloudCfg.projectId}`,
+    'select=body,created_at,profiles:profiles(username)',
+    'order=created_at.desc',
+    'limit=5',
+  ].join('&');
+
+  const url = `${cloudCfg.supabaseUrl}/rest/v1/messages?${params}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'apikey': cloudCfg.supabaseAnonKey,
+      'Authorization': `Bearer ${cloudCfg.accessToken}`,
+      'Accept': 'application/json',
+    },
+    signal: AbortSignal.timeout(3000),
+  });
+
+  if (!response.ok) return [];
+
+  const data = await response.json() as Array<{
+    body: string;
+    created_at: string;
+    profiles?: { username: string };
+  }>;
+
+  if (!Array.isArray(data)) return [];
+
+  return data.reverse().map((m) => ({
+    username: m.profiles?.username || '?',
+    body: m.body,
+    time: formatMessageAge(m.created_at),
+  }));
+}
+
 // --- Main execution ---
-try {
-  const projectDir = process.env.VF_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  const stateFile = findStateFile(projectDir);
-  if (!stateFile) process.exit(0);
+(async () => {
+  try {
+    const projectDir = process.env.VF_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+    const stateFile = findStateFile(projectDir);
+    if (!stateFile) process.exit(0);
 
-  const state = JSON.parse(readFileSync(stateFile, 'utf-8')) as VibeFocusState;
-  const vfWorker = process.env.VF_WORKER || null;
-  const stateDir = dirname(stateFile);
+    const state = JSON.parse(readFileSync(stateFile, 'utf-8')) as VibeFocusState;
+    const vfWorker = process.env.VF_WORKER || null;
+    const stateDir = dirname(stateFile);
 
-  const activeTaskId = resolveActiveTaskId(state, vfWorker);
+    const activeTaskId = resolveActiveTaskId(state, vfWorker);
 
-  if (!activeTaskId) {
-    console.log(JSON.stringify(buildNoTaskMessage(vfWorker)));
+    if (!activeTaskId) {
+      console.log(JSON.stringify(buildNoTaskMessage(vfWorker)));
+      process.exit(0);
+    }
+
+    const rawTask = state.tasks.find((t) => t.id === activeTaskId);
+    if (!rawTask) process.exit(0);
+
+    const task: TaskContext = {
+      id: rawTask.id,
+      title: rawTask.title,
+      metCount: rawTask.acceptanceCriteria.filter((c) => c.met).length,
+      totalCount: rawTask.acceptanceCriteria.length,
+      unmetCriteria: rawTask.acceptanceCriteria
+        .filter((c) => !c.met)
+        .map((c) => c.text),
+    };
+
+    const worker = extractWorkerContext(state, vfWorker);
+    const noteCount = (state.notes || []).filter((n) => !n.promoted).length;
+    const session = extractSessionContext(state);
+
+    // Read team username from local config
+    let teamUsername = '';
+    const localConfigPath = join(stateDir, 'team', 'local.json');
+    if (existsSync(localConfigPath)) {
+      try {
+        teamUsername = JSON.parse(readFileSync(localConfigPath, 'utf-8')).username || '';
+      } catch { /* skip */ }
+    }
+    const team = readTeamContext(stateDir, teamUsername);
+
+    const scope = state.projectScope?.outOfScope?.length > 0
+      ? { outOfScope: state.projectScope.outOfScope }
+      : null;
+
+    // Fetch recent team messages from cloud (non-blocking timeout)
+    let messages: TeamMessageContext[] = [];
+    const cloudCfg = readCloudConfigForHook(stateDir);
+    if (cloudCfg) {
+      try {
+        messages = await fetchRecentMessages(cloudCfg);
+      } catch { /* silent — never block the hook */ }
+    }
+
+    const input: GuardInput = { task, worker, scope, noteCount, session, team, messages };
+    console.log(JSON.stringify(buildGuardContext(input)));
+  } catch {
+    // Silent fail — never block the AI agent
     process.exit(0);
   }
-
-  const rawTask = state.tasks.find((t) => t.id === activeTaskId);
-  if (!rawTask) process.exit(0);
-
-  const task: TaskContext = {
-    id: rawTask.id,
-    title: rawTask.title,
-    metCount: rawTask.acceptanceCriteria.filter((c) => c.met).length,
-    totalCount: rawTask.acceptanceCriteria.length,
-    unmetCriteria: rawTask.acceptanceCriteria
-      .filter((c) => !c.met)
-      .map((c) => c.text),
-  };
-
-  const worker = extractWorkerContext(state, vfWorker);
-  const noteCount = (state.notes || []).filter((n) => !n.promoted).length;
-  const session = extractSessionContext(state);
-
-  // Read team username from local config
-  let teamUsername = '';
-  const localConfigPath = join(stateDir, 'team', 'local.json');
-  if (existsSync(localConfigPath)) {
-    try {
-      teamUsername = JSON.parse(readFileSync(localConfigPath, 'utf-8')).username || '';
-    } catch { /* skip */ }
-  }
-  const team = readTeamContext(stateDir, teamUsername);
-
-  const scope = state.projectScope?.outOfScope?.length > 0
-    ? { outOfScope: state.projectScope.outOfScope }
-    : null;
-
-  const input: GuardInput = { task, worker, scope, noteCount, session, team };
-  console.log(JSON.stringify(buildGuardContext(input)));
-} catch {
-  // Silent fail — never block the AI agent
-  process.exit(0);
-}
+})();

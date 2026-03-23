@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import boxen from 'boxen';
 import type { Task, GuardianResponse } from '../types/index.js';
+import type { StateChange } from '../core/sync.js';
 import { criteriaProgress } from '../core/task.js';
 import { elapsedMinutes, formatDuration } from '../utils/time.js';
 
@@ -110,4 +111,29 @@ export function printProgressBar(percent: number, width: number = 20): string {
   const filled = Math.round((percent / 100) * width);
   const empty = width - filled;
   return chalk.green('█'.repeat(filled)) + chalk.gray('░'.repeat(empty));
+}
+
+export function printChangeBanner(changes: StateChange[]): void {
+  if (changes.length === 0) return;
+
+  const shown = changes.slice(-5);
+
+  console.log('');
+  console.log(chalk.cyan('┌─ Other tabs ─────────────────────────────┐'));
+  for (const c of shown) {
+    const icon =
+      c.type === 'start' ? chalk.greenBright('▶') :
+      c.type === 'complete' ? chalk.cyanBright('✓') :
+      c.type === 'abandon' ? chalk.red('✗') :
+      c.type === 'switch_away' ? chalk.yellow('◀') :
+      c.type === 'switch_to' ? chalk.green('▶') :
+      c.type === 'pushback_override' ? chalk.red('!') :
+      chalk.dim('·');
+    console.log(chalk.cyan('│') + `  ${icon} ${chalk.bold(c.worker)}: ${c.description}`);
+  }
+  if (changes.length > 5) {
+    console.log(chalk.cyan('│') + chalk.dim(`  ... and ${changes.length - 5} more`));
+  }
+  console.log(chalk.cyan('└───────────────────────────────────────────┘'));
+  console.log('');
 }

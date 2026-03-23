@@ -4,6 +4,7 @@ import { statusCommand } from './commands/status.js';
 import { syncCommand } from './commands/sync.js';
 import { whoCommand } from './commands/who.js';
 import { offlineCommand } from './commands/offline.js';
+import { msgCommand } from './commands/msg.js';
 
 /**
  * Register team commands as a subcommand group under `vf team`.
@@ -17,6 +18,7 @@ export function register(program: Command): void {
   teamCmd.addCommand(syncCommand);
   teamCmd.addCommand(whoCommand);
   teamCmd.addCommand(offlineCommand);
+  teamCmd.addCommand(msgCommand);
 
   program.addCommand(teamCmd);
 }

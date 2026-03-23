@@ -24,6 +24,7 @@ export type {
   SessionContext,
   VibeFocusState,
   GuardianResponse,
+  WorkerMeta,
 } from './types/index.js';
 
 // State management
@@ -65,6 +66,10 @@ export type { DailyStats } from './core/history.js';
 export { calculateDailyScore, computeScoreFromFactors, scoreLabel } from './core/scoring.js';
 export type { ScoreFactors } from './core/scoring.js';
 
+// Sync (cross-tab change detection)
+export type { StateChange } from './core/sync.js';
+export { detectChanges, formatChangeBanner, stampWorkerMeta } from './core/sync.js';
+
 // UI helpers
 export {
   success,
@@ -75,6 +80,7 @@ export {
   printFocusCard,
   printGuardian,
   printProgressBar,
+  printChangeBanner,
 } from './ui/output.js';
 
 // Utils

@@ -141,6 +141,7 @@ describe('CLI entry point', () => {
     expect(subcommands).toContain('sync');
     expect(subcommands).toContain('who');
     expect(subcommands).toContain('offline');
-    expect(subcommands).toHaveLength(5);
+    expect(subcommands).toContain('msg');
+    expect(subcommands).toHaveLength(6);
   });
 });

@@ -1,9 +1,11 @@
 import chalk from 'chalk';
 import { Command } from 'commander';
-import { readState } from '../core/state.js';
-import { getActiveTask, getAllActiveWorkers, criteriaProgress } from '../core/task.js';
+import { readState, updateState } from '../core/state.js';
+import { getActiveTask, getAllActiveWorkers, criteriaProgress, resolveWorker } from '../core/task.js';
 import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
 import { elapsedMinutes, formatDuration, getTodayStart } from '../utils/time.js';
+import { detectChanges, stampWorkerMeta } from '../core/sync.js';
+import { printChangeBanner } from '../ui/output.js';
 
 const W = 62; // dashboard width
 
@@ -79,8 +81,15 @@ function sparkline(events: Array<{ type: string }>): string {
 export const statusCommand = new Command('status')
   .description('Show the focus dashboard')
   .option('--json', 'Output as JSON')
+  .option('--worker <name>', 'Identity for cross-tab sync')
   .action((opts) => {
     const state = readState();
+    const worker = resolveWorker(opts);
+    const workerKey = worker ?? '__default__';
+
+    // Show cross-tab changes
+    const changes = detectChanges(state, workerKey);
+    printChangeBanner(changes);
 
     if (opts.json) {
       const active = getActiveTask(state);
@@ -334,4 +343,7 @@ export const statusCommand = new Command('status')
     lines.push('');
 
     console.log(lines.join('\n'));
+
+    // Stamp worker meta so we don't re-show the same changes
+    updateState((s) => ({ ...s, workerMeta: stampWorkerMeta(s, workerKey) }));
   });

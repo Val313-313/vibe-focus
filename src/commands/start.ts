@@ -3,7 +3,8 @@ import { readState, writeState } from '../core/state.js';
 import { getTask, resolveActiveTask, updateTask, unmetDependencies, resolveWorker } from '../core/task.js';
 import { evaluateSwitch } from '../core/guardian.js';
 import { now } from '../utils/time.js';
-import { success, error, printFocusCard, printGuardian, info } from '../ui/output.js';
+import { success, error, printFocusCard, printGuardian, info, printChangeBanner } from '../ui/output.js';
+import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 import { fireHeartbeat } from '../cloud/core/heartbeat.js';
 import { fireCloudActivity } from '../cloud/core/api.js';
 
@@ -16,6 +17,11 @@ export const startCommand = new Command('start')
     let state = readState();
     const task = getTask(state, id);
     const worker = resolveWorker(opts);
+    const workerKey = worker ?? '__default__';
+
+    // Show cross-tab changes
+    const changes = detectChanges(state, workerKey);
+    printChangeBanner(changes);
 
     if (!task) {
       error(`Task ${id} not found.`);
@@ -61,8 +67,8 @@ export const startCommand = new Command('start')
         ...state,
         focusEvents: [
           ...state.focusEvents,
-          { type: 'switch_away' as const, taskId: active.id, timestamp: now() },
-          { type: 'pushback_override' as const, taskId: active.id, timestamp: now() },
+          { type: 'switch_away' as const, taskId: active.id, timestamp: now(), worker: workerKey },
+          { type: 'pushback_override' as const, taskId: active.id, timestamp: now(), worker: workerKey },
         ],
       };
     }
@@ -88,9 +94,10 @@ export const startCommand = new Command('start')
       currentSession: { taskId: id, startedAt: timestamp, endedAt: null },
       focusEvents: [
         ...state.focusEvents,
-        { type: 'start' as const, taskId: id, timestamp },
+        { type: 'start' as const, taskId: id, timestamp, worker: workerKey },
       ],
     };
+    state.workerMeta = stampWorkerMeta(state, workerKey);
 
     writeState(state);
     fireHeartbeat();

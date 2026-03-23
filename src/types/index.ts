@@ -44,6 +44,7 @@ export interface FocusEvent {
   taskId: string;
   timestamp: string;
   details?: string;
+  worker?: string;  // which worker/tab caused this event (multi-tab sync)
 }
 
 export interface FocusSession {
@@ -63,12 +64,18 @@ export interface SessionContext {
   techStack?: string[];               // active tech stack info
 }
 
+export interface WorkerMeta {
+  lastSeenEventIndex: number;  // index into focusEvents[] last consumed by this worker
+  lastCommandAt: string;       // ISO timestamp of last command run by this worker
+}
+
 export interface VibeFocusState {
   version: 1;
   projectName: string;
   projectScope: ProjectScope | null;
   activeTaskId: string | null;           // backwards compat: default worker
   activeWorkers: Record<string, string>; // worker name → task ID (multi-tab)
+  workerMeta: Record<string, WorkerMeta>; // worker name → sync metadata (multi-tab sync)
   nextTaskNumber: number;
   tasks: Task[];
   notes: Note[];

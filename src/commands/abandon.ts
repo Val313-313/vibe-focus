@@ -2,7 +2,8 @@ import { Command } from 'commander';
 import { readState, writeState } from '../core/state.js';
 import { resolveActiveTask, cleanupWorkers, updateTask, resolveWorker } from '../core/task.js';
 import { now } from '../utils/time.js';
-import { success, error, info } from '../ui/output.js';
+import { success, error, info, printChangeBanner } from '../ui/output.js';
+import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 
 export const abandonCommand = new Command('abandon')
   .description('Abandon the current active task')
@@ -12,7 +13,12 @@ export const abandonCommand = new Command('abandon')
   .action((opts) => {
     let state = readState();
     const worker = resolveWorker(opts);
+    const workerKey = worker ?? '__default__';
     const task = resolveActiveTask(state, worker);
+
+    // Show cross-tab changes
+    const changes = detectChanges(state, workerKey);
+    printChangeBanner(changes);
 
     if (!task) {
       error(worker ? `No active task for worker "${worker}".` : 'No active task to abandon.');
@@ -40,9 +46,11 @@ export const abandonCommand = new Command('abandon')
           taskId: task.id,
           timestamp,
           details: opts.reason,
+          worker: workerKey,
         },
       ],
     };
+    state.workerMeta = stampWorkerMeta(state, workerKey);
 
     writeState(state);
 

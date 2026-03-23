@@ -39,6 +39,12 @@ export interface TeamContext {
   myActiveFiles: string[];
 }
 
+export interface TeamMessageContext {
+  username: string;
+  body: string;
+  time: string;
+}
+
 export interface GuardInput {
   task: TaskContext;
   worker: WorkerContext;
@@ -46,6 +52,7 @@ export interface GuardInput {
   noteCount: number;
   session: SessionMemoryContext | null;
   team: TeamContext | null;
+  messages?: TeamMessageContext[];
 }
 
 export interface HookOutput {
@@ -120,8 +127,19 @@ export function buildTeamBlock(team: TeamContext): string {
   return lines.join('\n');
 }
 
+export function buildMessagesBlock(messages: TeamMessageContext[]): string {
+  if (messages.length === 0) return '';
+
+  const lines: string[] = [];
+  lines.push('\nTEAM MESSAGES (recent):');
+  for (const msg of messages) {
+    lines.push(`  ${msg.username}: ${msg.body} (${msg.time})`);
+  }
+  return lines.join('\n');
+}
+
 export function buildGuardContext(input: GuardInput): HookOutput {
-  const { task, worker, scope, noteCount, session, team } = input;
+  const { task, worker, scope, noteCount, session, team, messages } = input;
   const workerFlag = worker.currentWorker ? ` --worker ${worker.currentWorker}` : '';
 
   const sections: string[] = [];
@@ -161,6 +179,12 @@ export function buildGuardContext(input: GuardInput): HookOutput {
   if (team) {
     const teamBlock = buildTeamBlock(team);
     if (teamBlock) sections.push(teamBlock);
+  }
+
+  // Team messages
+  if (messages && messages.length > 0) {
+    const msgBlock = buildMessagesBlock(messages);
+    if (msgBlock) sections.push(msgBlock);
   }
 
   // Session memory

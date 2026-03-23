@@ -1,8 +1,9 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { readState, writeState } from '../core/state.js';
-import { getActiveTask, updateTask } from '../core/task.js';
-import { success, error, info } from '../ui/output.js';
+import { resolveActiveTask, updateTask, resolveWorker } from '../core/task.js';
+import { success, error, info, printChangeBanner } from '../ui/output.js';
+import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 import { fireHeartbeat } from '../cloud/core/heartbeat.js';
 import { fireCloudActivity } from '../cloud/core/api.js';
 
@@ -10,9 +11,16 @@ export const checkCommand = new Command('check')
   .description('Mark acceptance criteria as met on the active task')
   .argument('[criteria-ids...]', 'Criterion IDs to check (e.g. t1-c1 t1-c2)')
   .option('--all', 'Mark all criteria as met')
+  .option('--worker <name>', 'Check criteria for a specific worker/tab')
   .action((criteriaIds: string[], opts) => {
     let state = readState();
-    const task = getActiveTask(state);
+    const worker = resolveWorker(opts);
+    const workerKey = worker ?? '__default__';
+    const task = resolveActiveTask(state, worker);
+
+    // Show cross-tab changes
+    const changes = detectChanges(state, workerKey);
+    printChangeBanner(changes);
 
     if (!task) {
       error('No active task. Use "vf start <id>" first.');
@@ -48,6 +56,7 @@ export const checkCommand = new Command('check')
     }));
 
     state = updateTask(state, task.id, { acceptanceCriteria: updatedCriteria });
+    state.workerMeta = stampWorkerMeta(state, workerKey);
     writeState(state);
     fireHeartbeat();
 
