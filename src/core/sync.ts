@@ -48,6 +48,8 @@ function describeEvent(event: FocusEvent): string {
       return `switched to ${event.taskId}`;
     case 'pushback_override':
       return `overrode guardian on ${event.taskId}`;
+    case 'message':
+      return event.details ?? '(empty message)';
     default:
       return `${event.type} ${event.taskId}`;
   }
@@ -82,6 +84,7 @@ function eventIcon(type: FocusEvent['type']): string {
     case 'switch_away': return '◀';
     case 'switch_to': return '▶';
     case 'pushback_override': return '!';
+    case 'message': return '💬';
     default: return '·';
   }
 }

@@ -39,10 +39,41 @@ export interface HeartbeatPayload {
   status: 'active' | 'idle';
 }
 
-/** Response from the heartbeat API */
+/** Teammate presence returned in heartbeat response */
+export interface HeartbeatTeammate {
+  user_id: string;
+  task_id: string | null;
+  task_title: string | null;
+  progress_met: number;
+  progress_total: number;
+  active_files: string[];
+  focus_score: number;
+  status: 'active' | 'idle';
+  last_heartbeat: string;
+  profiles?: { username: string; display_name: string | null };
+}
+
+/** Message returned in heartbeat response */
+export interface HeartbeatMessage {
+  body: string;
+  created_at: string;
+  profile?: { username: string };
+}
+
+/** Response from the heartbeat API (enriched with team state) */
 export interface HeartbeatResult {
   ok: boolean;
   error?: string;
+  team?: HeartbeatTeammate[];
+  messages?: HeartbeatMessage[];
+}
+
+/** Cached cloud team state written to .vibe-focus/cloud-cache.json */
+export interface CloudCache {
+  version: 1;
+  updatedAt: string;
+  team: HeartbeatTeammate[];
+  messages: HeartbeatMessage[];
 }
 
 /** Supabase auth response shape (subset we use) */

@@ -4,6 +4,7 @@ import { resolveActiveTask, cleanupWorkers, updateTask, resolveWorker } from '..
 import { now } from '../utils/time.js';
 import { success, error, info, printChangeBanner } from '../ui/output.js';
 import { detectChanges, stampWorkerMeta } from '../core/sync.js';
+import { fireDiscordEvent } from '../team/core/discord.js';
 
 export const abandonCommand = new Command('abandon')
   .description('Abandon the current active task')
@@ -53,6 +54,7 @@ export const abandonCommand = new Command('abandon')
     state.workerMeta = stampWorkerMeta(state, workerKey);
 
     writeState(state);
+    fireDiscordEvent({ type: 'task_abandoned', taskId: task.id, taskTitle: task.title, worker: workerKey });
 
     if (opts.backlog) {
       success(`Task ${task.id} moved back to backlog: "${task.title}"`);

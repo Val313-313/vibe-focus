@@ -5,6 +5,7 @@ import { syncCommand } from './commands/sync.js';
 import { whoCommand } from './commands/who.js';
 import { offlineCommand } from './commands/offline.js';
 import { msgCommand } from './commands/msg.js';
+import { discordCommand } from './commands/discord.js';
 
 /**
  * Register team commands as a subcommand group under `vf team`.
@@ -19,6 +20,7 @@ export function register(program: Command): void {
   teamCmd.addCommand(whoCommand);
   teamCmd.addCommand(offlineCommand);
   teamCmd.addCommand(msgCommand);
+  teamCmd.addCommand(discordCommand);
 
   program.addCommand(teamCmd);
 }

@@ -4,6 +4,7 @@ import { calculateDailyScore } from '../../core/scoring.js';
 import { getActiveFiles } from '../../team/core/file-tracker.js';
 import { filterSensitiveFiles } from '../../team/core/validation.js';
 import { readCloudConfig } from './cloud-state.js';
+import { writeCloudCache } from './cloud-cache.js';
 import type { HeartbeatPayload, HeartbeatResult, CloudConfig } from '../types.js';
 
 /** Maximum number of active files to include in payload */
@@ -123,7 +124,26 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
     return { ok: false, error: 'Malformed API response.' };
   }
 
-  return { ok: result.ok as boolean, error: result.error as string | undefined };
+  // Cache team state from enriched response (fire-and-forget)
+  if (result.ok && (Array.isArray(result.team) || Array.isArray(result.messages))) {
+    try {
+      writeCloudCache({
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        team: Array.isArray(result.team) ? result.team as HeartbeatResult['team'] & [] : [],
+        messages: Array.isArray(result.messages) ? result.messages as HeartbeatResult['messages'] & [] : [],
+      });
+    } catch {
+      // Never fail on cache write
+    }
+  }
+
+  return {
+    ok: result.ok as boolean,
+    error: result.error as string | undefined,
+    team: Array.isArray(result.team) ? result.team as HeartbeatResult['team'] : undefined,
+    messages: Array.isArray(result.messages) ? result.messages as HeartbeatResult['messages'] : undefined,
+  };
 }
 
 /**

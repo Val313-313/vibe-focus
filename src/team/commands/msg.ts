@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { supabaseInsert, supabaseQuery } from '../../cloud/core/api.js';
 import { readCloudConfig } from '../../cloud/core/cloud-state.js';
 import type { CloudConfig } from '../../cloud/types.js';
+import { fireDiscordEvent } from '../core/discord.js';
 
 interface MessageRow {
   id: string;
@@ -57,6 +58,7 @@ export const msgCommand = new Command('msg')
 
       if (result.success) {
         console.log(chalk.green('  ✓ Message sent to team'));
+        fireDiscordEvent({ type: 'message', message: trimmed });
       } else {
         console.log(chalk.red(`  Failed to send: ${result.error}`));
       }

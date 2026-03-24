@@ -111,6 +111,10 @@ export {
   updateGitignore,
 } from './team/core/team-state.js';
 
+// Team Discord
+export type { DiscordEvent } from './team/core/discord.js';
+export { fireDiscordEvent, testDiscordWebhook } from './team/core/discord.js';
+
 // Team presence
 export {
   writePresence,

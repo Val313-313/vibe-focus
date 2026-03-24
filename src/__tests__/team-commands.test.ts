@@ -142,6 +142,7 @@ describe('CLI entry point', () => {
     expect(subcommands).toContain('who');
     expect(subcommands).toContain('offline');
     expect(subcommands).toContain('msg');
-    expect(subcommands).toHaveLength(6);
+    expect(subcommands).toContain('discord');
+    expect(subcommands).toHaveLength(7);
   });
 });

@@ -7,6 +7,7 @@ import { success, error, printFocusCard, printGuardian, info, printChangeBanner 
 import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 import { fireHeartbeat } from '../cloud/core/heartbeat.js';
 import { fireCloudActivity } from '../cloud/core/api.js';
+import { fireDiscordEvent } from '../team/core/discord.js';
 
 export const startCommand = new Command('start')
   .description('Start working on a task')
@@ -102,6 +103,7 @@ export const startCommand = new Command('start')
     writeState(state);
     fireHeartbeat();
     fireCloudActivity({ type: 'task_started', message: `Started ${id}: "${task.title}"` });
+    fireDiscordEvent({ type: 'task_started', taskId: id, taskTitle: task.title, worker: workerKey });
 
     const updated = state.tasks.find((t) => t.id === id)!;
     success(`Started task ${id}` + (worker ? ` [worker: ${worker}]` : ''));

@@ -6,6 +6,7 @@ import { success, error, info, printChangeBanner } from '../ui/output.js';
 import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 import { fireHeartbeat } from '../cloud/core/heartbeat.js';
 import { fireCloudActivity } from '../cloud/core/api.js';
+import { fireDiscordEvent } from '../team/core/discord.js';
 
 export const checkCommand = new Command('check')
   .description('Mark acceptance criteria as met on the active task')
@@ -67,6 +68,10 @@ export const checkCommand = new Command('check')
     const total = updatedCriteria.length;
 
     fireCloudActivity({ type: 'criterion_checked', message: `Checked ${checked.length} criteria on ${task.id}` });
+    fireDiscordEvent({
+      type: 'criterion_checked', taskId: task.id, taskTitle: task.title, worker: workerKey,
+      progress: `${met}/${total}`,
+    });
 
     success(`Checked ${checked.length} criteria (${met}/${total} total)`);
 

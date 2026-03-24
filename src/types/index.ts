@@ -40,7 +40,7 @@ export interface Note {
 }
 
 export interface FocusEvent {
-  type: 'start' | 'complete' | 'abandon' | 'switch_away' | 'switch_to' | 'pushback_override';
+  type: 'start' | 'complete' | 'abandon' | 'switch_away' | 'switch_to' | 'pushback_override' | 'message';
   taskId: string;
   timestamp: string;
   details?: string;

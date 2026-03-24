@@ -25,6 +25,7 @@ export interface TeamConfig {
     staleThresholdMinutes: number;
     offlineThresholdMinutes: number;
     syncIntervalSeconds: number;
+    discordWebhookUrl?: string;
   };
 }
 

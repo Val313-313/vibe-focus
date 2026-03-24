@@ -33,6 +33,7 @@ export const watchCommand = new Command('watch')
               c.type === 'switch_away' ? chalk.yellow('◀') :
               c.type === 'switch_to' ? chalk.green('▶') :
               c.type === 'pushback_override' ? chalk.red('!') :
+              c.type === 'message' ? chalk.magentaBright('💬') :
               chalk.dim('·');
             const time = new Date(c.timestamp).toLocaleTimeString('de-DE', {
               hour: '2-digit', minute: '2-digit', second: '2-digit',

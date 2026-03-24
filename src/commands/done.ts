@@ -12,6 +12,7 @@ import { saveContext } from './context.js';
 import type { StructuredContextFields } from './context.js';
 import { fireHeartbeat } from '../cloud/core/heartbeat.js';
 import { fireCloudActivity } from '../cloud/core/api.js';
+import { fireDiscordEvent } from '../team/core/discord.js';
 
 export const doneCommand = new Command('done')
   .description('Complete the current active task')
@@ -72,6 +73,10 @@ export const doneCommand = new Command('done')
     writeState(state);
     fireHeartbeat({ status: 'idle' });
     fireCloudActivity({ type: 'task_completed', message: `Completed ${task.id}: "${task.title}"` });
+    fireDiscordEvent({
+      type: 'task_completed', taskId: task.id, taskTitle: task.title, worker: workerKey,
+      progress: `${total}/${total} criteria met`,
+    });
 
     // Auto-save session context
     const lastCtx = state.sessionContexts.length > 0

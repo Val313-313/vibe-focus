@@ -128,6 +128,7 @@ export function printChangeBanner(changes: StateChange[]): void {
       c.type === 'switch_away' ? chalk.yellow('◀') :
       c.type === 'switch_to' ? chalk.green('▶') :
       c.type === 'pushback_override' ? chalk.red('!') :
+      c.type === 'message' ? chalk.magentaBright('💬') :
       chalk.dim('·');
     console.log(chalk.cyan('│') + `  ${icon} ${chalk.bold(c.worker)}: ${c.description}`);
   }
