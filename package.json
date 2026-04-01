@@ -1,6 +1,6 @@
 {
   "name": "vibe-focus",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Focus Guardian CLI for vibe coding sessions - prevents context collapse when working with AI coding agents",
   "type": "module",
   "exports": {
