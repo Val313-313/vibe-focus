@@ -146,6 +146,14 @@ async function githubDeviceFlow(config: ReturnType<typeof readCloudConfig>): Pro
           config.refreshToken = (data.refresh_token as string) ?? null;
           config.userId = data.user_id as string;
 
+          // Save Supabase credentials for token refresh
+          if (typeof data.supabase_url === 'string' && data.supabase_url) {
+            config.supabaseUrl = data.supabase_url as string;
+          }
+          if (typeof data.supabase_anon_key === 'string' && data.supabase_anon_key) {
+            config.supabaseAnonKey = data.supabase_anon_key as string;
+          }
+
           writeCloudConfig(config);
 
           success(`Logged in as ${data.user_id}`);

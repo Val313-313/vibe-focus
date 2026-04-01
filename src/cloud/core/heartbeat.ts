@@ -5,6 +5,7 @@ import { getActiveFiles } from '../../team/core/file-tracker.js';
 import { filterSensitiveFiles } from '../../team/core/validation.js';
 import { readCloudConfig } from './cloud-state.js';
 import { writeCloudCache } from './cloud-cache.js';
+import { refreshAccessToken } from './token-refresh.js';
 import type { HeartbeatPayload, HeartbeatResult, CloudConfig } from '../types.js';
 
 /** Maximum number of active files to include in payload */
@@ -107,6 +108,59 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
     body,
     signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS),
   });
+
+  if (response.status === 401 || response.status === 403) {
+    // Token likely expired — try to refresh and retry once
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const freshConfig = readCloudConfig();
+      const retryResponse = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${freshConfig.accessToken}`,
+        },
+        body,
+        signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS),
+      });
+
+      if (!retryResponse.ok) {
+        return { ok: false, error: `HTTP ${retryResponse.status}` };
+      }
+
+      const retryContentType = retryResponse.headers.get('content-type') ?? '';
+      if (!retryContentType.includes('application/json')) {
+        return { ok: false, error: 'Unexpected response format.' };
+      }
+
+      const retryResult = await retryResponse.json() as Record<string, unknown>;
+      if (typeof retryResult.ok !== 'boolean') {
+        return { ok: false, error: 'Malformed API response.' };
+      }
+
+      if (retryResult.ok && (Array.isArray(retryResult.team) || Array.isArray(retryResult.messages))) {
+        try {
+          writeCloudCache({
+            version: 1,
+            updatedAt: new Date().toISOString(),
+            team: Array.isArray(retryResult.team) ? retryResult.team as HeartbeatResult['team'] & [] : [],
+            messages: Array.isArray(retryResult.messages) ? retryResult.messages as HeartbeatResult['messages'] & [] : [],
+          });
+        } catch {
+          // Never fail on cache write
+        }
+      }
+
+      return {
+        ok: retryResult.ok as boolean,
+        error: retryResult.error as string | undefined,
+        team: Array.isArray(retryResult.team) ? retryResult.team as HeartbeatResult['team'] : undefined,
+        messages: Array.isArray(retryResult.messages) ? retryResult.messages as HeartbeatResult['messages'] : undefined,
+      };
+    }
+
+    return { ok: false, error: `HTTP ${response.status}` };
+  }
 
   if (!response.ok) {
     // Do not leak response body details — could contain server internals
