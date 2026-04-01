@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { VibeFocusState } from '../types/index.js';
+import { exportTasks, importTasks } from './shared-log.js';
 
 const STATE_DIR = '.vibe-focus';
 const STATE_FILE = 'state.json';
@@ -52,6 +53,7 @@ export function writeState(state: VibeFocusState): void {
   const tmpPath = filePath + '.tmp';
   fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpPath, filePath);
+  exportTasks(state);
 }
 
 export function updateState(fn: (state: VibeFocusState) => VibeFocusState): void {
@@ -79,14 +81,24 @@ export function createEmptyState(projectName: string): VibeFocusState {
   };
 }
 
-export function initProject(projectName: string): string {
+export function initProject(projectName: string): { dir: string; importedCount: number } {
   const dir = path.join(process.cwd(), STATE_DIR);
   if (fs.existsSync(path.join(dir, STATE_FILE))) {
     throw new Error('Already initialized. Use "vf status" to see current state.');
   }
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, '.gitignore'), '*\n');
+  fs.writeFileSync(path.join(dir, '.gitignore'), 'state.json\nstate.json.tmp\ntasks.json.tmp\nconfig.json\n');
   const state = createEmptyState(projectName);
+
+  // Seed from tasks.json if present (collaborator cloned the repo)
+  const imported = importTasks(dir);
+  let importedCount = 0;
+  if (imported) {
+    state.tasks = imported.tasks;
+    state.nextTaskNumber = imported.nextTaskNumber;
+    importedCount = imported.tasks.length;
+  }
+
   fs.writeFileSync(path.join(dir, STATE_FILE), JSON.stringify(state, null, 2), { mode: 0o600 });
-  return dir;
+  return { dir, importedCount };
 }

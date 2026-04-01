@@ -13,7 +13,7 @@ export const initCommand = new Command('init')
   .action((opts) => {
     const projectName = opts.name ?? path.basename(process.cwd());
     try {
-      initProject(projectName);
+      const { importedCount } = initProject(projectName);
 
       // Save agent to config if specified
       if (opts.agent) {
@@ -28,6 +28,9 @@ export const initCommand = new Command('init')
       const agentName = agent ? AGENT_CONFIGS[agent].displayName : undefined;
 
       success(`vibe-focus initialized for "${projectName}"`);
+      if (importedCount > 0) {
+        info(`Imported ${importedCount} task${importedCount === 1 ? '' : 's'} from tasks.json`);
+      }
       if (agentName) {
         info(`Agent: ${agentName}`);
       }

@@ -5,6 +5,7 @@ import { readState, writeState } from '../core/state.js';
 import { getActiveTask } from '../core/task.js';
 import { success, info, warn } from '../ui/output.js';
 import type { SessionContext } from '../types/index.js';
+import { logContext } from '../core/shared-log.js';
 
 const MAX_CONTEXTS = 5; // keep last 5 session contexts
 
@@ -138,6 +139,7 @@ export function saveContext(
   }
 
   writeState(state);
+  logContext(summary, ctx.taskId, '__default__');
 
   if (quiet) {
     info(`Session context saved (${ctx.id}).`);

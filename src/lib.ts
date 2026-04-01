@@ -83,6 +83,9 @@ export {
   printChangeBanner,
 } from './ui/output.js';
 
+// Task sync (export/import for collaborators)
+export { exportTasks, importTasks } from './core/shared-log.js';
+
 // Utils
 export { now, elapsedMinutes, formatDuration, getTodayStart } from './utils/time.js';
 export { generateTaskId, generateCriterionId } from './utils/id.js';

@@ -13,6 +13,7 @@ import type { StructuredContextFields } from './context.js';
 import { fireHeartbeat } from '../cloud/core/heartbeat.js';
 import { fireCloudActivity } from '../cloud/core/api.js';
 import { fireDiscordEvent } from '../team/core/discord.js';
+import { logTaskCompleted } from '../core/shared-log.js';
 
 export const doneCommand = new Command('done')
   .description('Complete the current active task')
@@ -98,6 +99,8 @@ export const doneCommand = new Command('done')
       task.id,
       true,
     );
+
+    logTaskCompleted(task.id, task.title, workerKey, formatDuration(elapsed));
 
     success(`Task ${task.id} completed: "${task.title}"`);
     if (total > 0) console.log(`  Criteria: ${total}/${total} met`);

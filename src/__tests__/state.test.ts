@@ -71,10 +71,11 @@ describe('initProject', () => {
     expect(() => initProject('test-project')).toThrow('Already initialized');
   });
 
-  it('returns the created directory path', () => {
-    const dir = initProject('test-project');
+  it('returns the created directory path and import count', () => {
+    const { dir, importedCount } = initProject('test-project');
 
     expect(fs.realpathSync(dir)).toBe(fs.realpathSync(path.join(tmpDir, '.vibe-focus')));
+    expect(importedCount).toBe(0);
   });
 });
 

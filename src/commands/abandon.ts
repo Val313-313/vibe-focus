@@ -5,6 +5,7 @@ import { now } from '../utils/time.js';
 import { success, error, info, printChangeBanner } from '../ui/output.js';
 import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 import { fireDiscordEvent } from '../team/core/discord.js';
+import { logTaskAbandoned } from '../core/shared-log.js';
 
 export const abandonCommand = new Command('abandon')
   .description('Abandon the current active task')
@@ -55,6 +56,9 @@ export const abandonCommand = new Command('abandon')
 
     writeState(state);
     fireDiscordEvent({ type: 'task_abandoned', taskId: task.id, taskTitle: task.title, worker: workerKey });
+    if (!opts.backlog) {
+      logTaskAbandoned(task.id, task.title, workerKey, opts.reason);
+    }
 
     if (opts.backlog) {
       success(`Task ${task.id} moved back to backlog: "${task.title}"`);
