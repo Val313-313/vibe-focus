@@ -53,8 +53,9 @@ function validateConfig(raw: unknown): CloudConfig {
   // Validate optional string-or-null fields
   const nullableStrings = ['supabaseUrl', 'supabaseAnonKey', 'accessToken', 'refreshToken', 'userId', 'linkedAt', 'apiKey'] as const;
   for (const key of nullableStrings) {
-    if (obj[key] !== null && typeof obj[key] !== 'string') {
-      throw new Error(`Invalid cloud config: ${key} must be string or null.`);
+    const val = obj[key];
+    if (val !== null && val !== undefined && typeof val !== 'string') {
+      throw new Error(`Invalid cloud config: ${key} must be string or null (got ${typeof val}: ${String(val).slice(0, 20)}).`);
     }
   }
 

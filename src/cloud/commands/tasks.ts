@@ -181,6 +181,24 @@ export const tasksCommand = new Command('tasks')
     }
   });
 
+/** Resolve a short task ID prefix to full UUID by fetching project tasks */
+async function resolveTaskId(config: { apiUrl: string; apiKey: string | null; accessToken: string | null; projectId: string | null }, shortId: string): Promise<string | null> {
+  if (shortId.length >= 36) return shortId;
+  try {
+    const res = await apiFetch(config, `/api/projects/${config.projectId}/tasks`);
+    if (!res.ok) return null;
+    const tasks = await res.json() as Array<{ id: string }>;
+    const match = tasks.find(t => t.id.startsWith(shortId));
+    if (!match) {
+      error(`No task found starting with "${shortId}". Run "vf vibeteamz tasks" to see IDs.`);
+      return null;
+    }
+    return match.id;
+  } catch {
+    return null;
+  }
+}
+
 // ── vf vibeteamz task (subcommands) ─────────────────────────────────────
 
 export const taskCommand = new Command('task')
@@ -204,8 +222,11 @@ taskCommand
       return;
     }
 
+    const fullId = await resolveTaskId(config, taskId);
+    if (!fullId) return;
+
     try {
-      const res = await apiFetch(config, `/api/tasks/${taskId}`, {
+      const res = await apiFetch(config, `/api/tasks/${fullId}`, {
         method: 'PATCH',
         body: JSON.stringify({ assigned_to: config.userId }),
       });
@@ -240,8 +261,11 @@ taskCommand
       return;
     }
 
+    const fullId = await resolveTaskId(config, taskId);
+    if (!fullId) return;
+
     try {
-      const res = await apiFetch(config, `/api/tasks/${taskId}`, {
+      const res = await apiFetch(config, `/api/tasks/${fullId}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: 'in_progress', assigned_to: config.userId }),
       });
@@ -276,8 +300,11 @@ taskCommand
       return;
     }
 
+    const fullId = await resolveTaskId(config, taskId);
+    if (!fullId) return;
+
     try {
-      const res = await apiFetch(config, `/api/tasks/${taskId}`, {
+      const res = await apiFetch(config, `/api/tasks/${fullId}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: 'done' }),
       });
