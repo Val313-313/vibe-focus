@@ -8,7 +8,9 @@ import { pullCommand } from './commands/pull.js';
 import { pushCommand } from './commands/push.js';
 import { msgCommand } from './commands/msg.js';
 import { milestoneCommand } from './commands/milestone.js';
+import { milestonesCommand } from './commands/milestones.js';
 import { noteCommand as cloudNoteCommand } from './commands/note.js';
+import { tasksCommand, taskCommand } from './commands/tasks.js';
 
 /**
  * Register cloud commands under `vf vibeteamz` (primary) and `vf cloud` (hidden alias).
@@ -26,7 +28,10 @@ export function registerCloud(program: Command): void {
   primaryCmd.addCommand(pushCommand);
   primaryCmd.addCommand(msgCommand);
   primaryCmd.addCommand(milestoneCommand);
+  primaryCmd.addCommand(milestonesCommand);
   primaryCmd.addCommand(cloudNoteCommand);
+  primaryCmd.addCommand(tasksCommand);
+  primaryCmd.addCommand(taskCommand);
 
   program.addCommand(primaryCmd);
 
