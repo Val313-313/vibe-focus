@@ -24,6 +24,8 @@ export interface CloudConfig {
   projectId: string | null;
   /** ISO timestamp of when project was linked */
   linkedAt: string | null;
+  /** Project-scoped API key (vbtz_...) — preferred over accessToken */
+  apiKey: string | null;
 }
 
 /** Heartbeat payload sent to POST /api/heartbeat */
@@ -60,12 +62,22 @@ export interface HeartbeatMessage {
   profile?: { username: string };
 }
 
+/** A work suggestion computed server-side */
+export interface HeartbeatSuggestion {
+  type: string;
+  message: string;
+  milestone_title?: string;
+  task_title?: string;
+  urgency: 'low' | 'medium' | 'high';
+}
+
 /** Response from the heartbeat API (enriched with team state) */
 export interface HeartbeatResult {
   ok: boolean;
   error?: string;
   team?: HeartbeatTeammate[];
   messages?: HeartbeatMessage[];
+  suggestions?: HeartbeatSuggestion[];
 }
 
 /** Cached cloud team state written to .vibe-focus/cloud-cache.json */
@@ -74,6 +86,7 @@ export interface CloudCache {
   updatedAt: string;
   team: HeartbeatTeammate[];
   messages: HeartbeatMessage[];
+  suggestions?: HeartbeatSuggestion[];
 }
 
 /** Supabase auth response shape (subset we use) */

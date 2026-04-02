@@ -170,6 +170,7 @@ describe('cloud-state', () => {
         userId: null,
         projectId: null,
         linkedAt: null,
+        apiKey: null,
       });
 
       const filePath = path.join(tmpDir, '.vibe-focus', 'cloud.json');
@@ -192,6 +193,7 @@ describe('cloud-state', () => {
           userId: null,
           projectId: null,
           linkedAt: null,
+          apiKey: null,
         }),
       ).toThrow('apiUrl must be a valid HTTPS URL');
     });
@@ -208,6 +210,7 @@ describe('cloud-state', () => {
           userId: null,
           projectId: null,
           linkedAt: null,
+          apiKey: null,
         });
       } catch { /* expected */ }
 
@@ -234,6 +237,7 @@ describe('cloud-state', () => {
         userId: null,
         projectId: null,
         linkedAt: null,
+        apiKey: null,
       });
       expect(isCloudLinked()).toBe(false);
     });
@@ -249,6 +253,7 @@ describe('cloud-state', () => {
         userId: '550e8400-e29b-41d4-a716-446655440000',
         projectId: null,
         linkedAt: null,
+        apiKey: null,
       });
       expect(isCloudLinked()).toBe(false);
     });
@@ -264,6 +269,7 @@ describe('cloud-state', () => {
         userId: '550e8400-e29b-41d4-a716-446655440000',
         projectId: '660e8400-e29b-41d4-a716-446655440000',
         linkedAt: '2025-01-01T00:00:00.000Z',
+        apiKey: null,
       });
       expect(isCloudLinked()).toBe(true);
     });
@@ -281,6 +287,7 @@ describe('cloud-state', () => {
         userId: '550e8400-e29b-41d4-a716-446655440000',
         projectId: '660e8400-e29b-41d4-a716-446655440000',
         linkedAt: '2025-01-01T00:00:00.000Z',
+        apiKey: null,
       });
 
       clearCloudAuth();

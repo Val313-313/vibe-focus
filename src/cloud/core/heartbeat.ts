@@ -6,7 +6,7 @@ import { filterSensitiveFiles } from '../../team/core/validation.js';
 import { readCloudConfig } from './cloud-state.js';
 import { writeCloudCache } from './cloud-cache.js';
 import { refreshAccessToken } from './token-refresh.js';
-import type { HeartbeatPayload, HeartbeatResult, CloudConfig } from '../types.js';
+import type { HeartbeatPayload, HeartbeatResult, HeartbeatSuggestion, CloudConfig } from '../types.js';
 
 /** Maximum number of active files to include in payload */
 const MAX_FILES = 50;
@@ -36,7 +36,7 @@ export function buildHeartbeatPayload(
     return null;
   }
 
-  if (!config.accessToken || !config.userId || !config.projectId) {
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
     return null;
   }
 
@@ -87,7 +87,11 @@ export function buildHeartbeatPayload(
 export async function sendHeartbeat(payload: HeartbeatPayload): Promise<HeartbeatResult> {
   const config = readCloudConfig();
 
-  if (!config.accessToken) {
+  // Prefer API key over access token
+  const bearerToken = config.apiKey ?? config.accessToken;
+  const usingApiKey = !!config.apiKey;
+
+  if (!bearerToken) {
     return { ok: false, error: 'Not authenticated.' };
   }
 
@@ -103,13 +107,18 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.accessToken}`,
+      'Authorization': `Bearer ${bearerToken}`,
     },
     body,
     signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS),
   });
 
   if (response.status === 401 || response.status === 403) {
+    // API keys don't support refresh — fail immediately
+    if (usingApiKey) {
+      return { ok: false, error: 'API key rejected. Re-run "vf cloud link" to generate a new key.' };
+    }
+
     // Token likely expired — try to refresh and retry once
     const refreshed = await refreshAccessToken();
     if (refreshed) {
@@ -145,6 +154,7 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
             updatedAt: new Date().toISOString(),
             team: Array.isArray(retryResult.team) ? retryResult.team as HeartbeatResult['team'] & [] : [],
             messages: Array.isArray(retryResult.messages) ? retryResult.messages as HeartbeatResult['messages'] & [] : [],
+            suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions as HeartbeatSuggestion[] : undefined,
           });
         } catch {
           // Never fail on cache write
@@ -156,6 +166,7 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
         error: retryResult.error as string | undefined,
         team: Array.isArray(retryResult.team) ? retryResult.team as HeartbeatResult['team'] : undefined,
         messages: Array.isArray(retryResult.messages) ? retryResult.messages as HeartbeatResult['messages'] : undefined,
+        suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions as HeartbeatSuggestion[] : undefined,
       };
     }
 
@@ -186,6 +197,7 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
         updatedAt: new Date().toISOString(),
         team: Array.isArray(result.team) ? result.team as HeartbeatResult['team'] & [] : [],
         messages: Array.isArray(result.messages) ? result.messages as HeartbeatResult['messages'] & [] : [],
+        suggestions: Array.isArray(result.suggestions) ? result.suggestions as HeartbeatSuggestion[] : undefined,
       });
     } catch {
       // Never fail on cache write
@@ -197,6 +209,7 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
     error: result.error as string | undefined,
     team: Array.isArray(result.team) ? result.team as HeartbeatResult['team'] : undefined,
     messages: Array.isArray(result.messages) ? result.messages as HeartbeatResult['messages'] : undefined,
+    suggestions: Array.isArray(result.suggestions) ? result.suggestions as HeartbeatSuggestion[] : undefined,
   };
 }
 

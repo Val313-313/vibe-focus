@@ -6,6 +6,7 @@ import { calculateDailyScore, scoreLabel } from '../core/scoring.js';
 import { elapsedMinutes, formatDuration, getTodayStart } from '../utils/time.js';
 import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 import { printChangeBanner } from '../ui/output.js';
+import { isCloudLinked, readCloudConfig } from '../cloud/core/cloud-state.js';
 
 const W = 62; // dashboard width
 
@@ -286,6 +287,30 @@ export const statusCommand = new Command('status')
         d('  ') + d('▲start ') + cB('●done ') + y('◆switch') + r(' !force'),
         W
       ));
+    }
+
+    // ── Cloud Section ──
+    lines.push(sectionHeader('CLOUD', W));
+    lines.push(boxEmpty(W));
+
+    try {
+      if (isCloudLinked()) {
+        const cloudCfg = readCloudConfig();
+        const projectLabel = cloudCfg.projectId ? cloudCfg.projectId.slice(0, 8) + '...' : '?';
+        lines.push(boxRow(
+          d('   STATUS  ') + gB('♥') + g(' connected') +
+          d('   PROJECT ') + c(projectLabel),
+          W
+        ));
+      } else {
+        lines.push(boxRow(
+          d('   STATUS  ') + y('♥') + d(' not linked') +
+          d('   run ') + c('vf setup') + d(' to connect'),
+          W
+        ));
+      }
+    } catch {
+      lines.push(boxRow(d('   STATUS  ') + d('♥ unknown'), W));
     }
 
     // ── Recent Log ──

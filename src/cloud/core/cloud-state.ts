@@ -27,6 +27,7 @@ function defaultConfig(): CloudConfig {
     userId: null,
     projectId: null,
     linkedAt: null,
+    apiKey: null,
   };
 }
 
@@ -50,7 +51,7 @@ function validateConfig(raw: unknown): CloudConfig {
   }
 
   // Validate optional string-or-null fields
-  const nullableStrings = ['supabaseUrl', 'supabaseAnonKey', 'accessToken', 'refreshToken', 'userId', 'linkedAt'] as const;
+  const nullableStrings = ['supabaseUrl', 'supabaseAnonKey', 'accessToken', 'refreshToken', 'userId', 'linkedAt', 'apiKey'] as const;
   for (const key of nullableStrings) {
     if (obj[key] !== null && typeof obj[key] !== 'string') {
       throw new Error(`Invalid cloud config: ${key} must be string or null.`);
@@ -85,6 +86,7 @@ function validateConfig(raw: unknown): CloudConfig {
     userId: (obj.userId as string) ?? null,
     projectId: (obj.projectId as string) ?? null,
     linkedAt: (obj.linkedAt as string) ?? null,
+    apiKey: (obj.apiKey as string) ?? null,
   };
 }
 
@@ -125,7 +127,7 @@ export function writeCloudConfig(config: CloudConfig): void {
 export function isCloudLinked(): boolean {
   try {
     const config = readCloudConfig();
-    return !!(config.accessToken && config.userId && config.projectId);
+    return !!((config.accessToken || config.apiKey) && config.userId && config.projectId);
   } catch {
     return false;
   }

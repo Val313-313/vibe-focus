@@ -17,7 +17,10 @@ import { noteCommand } from './commands/note.js';
 import { contextCommand } from './commands/context.js';
 import { historyCommand } from './commands/history.js';
 import { watchCommand } from './commands/watch.js';
+import { hookCommand } from './commands/hook.js';
 import { msgCommand } from './commands/msg.js';
+import { setupCommand } from './commands/setup.js';
+import { joinCommand } from './commands/join.js';
 import { register as registerTeam } from './team/register.js';
 import { registerCloud } from './cloud/register.js';
 
@@ -47,7 +50,10 @@ program.addCommand(noteCommand);
 program.addCommand(contextCommand);
 program.addCommand(historyCommand);
 program.addCommand(watchCommand);
+program.addCommand(hookCommand);
 program.addCommand(msgCommand);
+program.addCommand(setupCommand);
+program.addCommand(joinCommand);
 registerTeam(program);
 registerCloud(program);
 // Default to status when no command given

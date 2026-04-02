@@ -2,8 +2,9 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { readCloudConfig, isValidUUID } from '../core/cloud-state.js';
 import { supabaseQuery } from '../core/api.js';
+import { readCloudCache } from '../core/cloud-cache.js';
 import { error, info } from '../../ui/output.js';
-import type { CloudPresenceRow } from '../types.js';
+import type { CloudPresenceRow, HeartbeatSuggestion } from '../types.js';
 
 const g = chalk.green;
 const gB = chalk.greenBright;
@@ -128,5 +129,18 @@ export const teamCommand = new Command('team')
 
     console.log('');
     console.log(`  ${parts.join(', ')}`);
+
+    // Show work suggestions from cloud cache
+    const cache = readCloudCache();
+    const suggestions = cache?.suggestions;
+    if (suggestions && suggestions.length > 0) {
+      console.log('');
+      console.log(d('  SUGGESTIONS'));
+      for (const s of suggestions) {
+        const icon = s.urgency === 'high' ? r('\u25cf') : s.urgency === 'medium' ? y('\u25cf') : g('\u25cf');
+        console.log(`  ${icon} ${s.message}`);
+      }
+    }
+
     console.log('');
   });

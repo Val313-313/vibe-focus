@@ -2,20 +2,20 @@ import { Command } from 'commander';
 import { readCloudConfig, isValidUUID } from '../core/cloud-state.js';
 import { success, error } from '../../ui/output.js';
 
-export const pushCommand = new Command('push')
-  .description('Post a message to your vibeteamz project team chat')
-  .argument('<message>', 'Message to post')
+export const msgCommand = new Command('msg')
+  .description('Send a message to your project team chat')
+  .argument('<message>', 'Message to send')
   .action(async (message: string) => {
     let config;
     try {
       config = readCloudConfig();
     } catch {
-      error('Cloud config is corrupted. Re-run "vf cloud login".');
+      error('Cloud config is corrupted. Re-run "vf vibeteamz login".');
       return;
     }
 
     if (!config.accessToken || !config.userId || !config.projectId) {
-      error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+      error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
       return;
     }
 
@@ -40,10 +40,10 @@ export const pushCommand = new Command('push')
       });
 
       if (res.ok) {
-        success('Message posted to team chat.');
+        success('Message sent to team chat.');
       } else {
         const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        error(`Failed to post message: ${data.error ?? `HTTP ${res.status}`}`);
+        error(`Failed to send message: ${data.error ?? `HTTP ${res.status}`}`);
       }
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'TimeoutError') {

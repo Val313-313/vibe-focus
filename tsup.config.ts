@@ -20,4 +20,16 @@ export default defineConfig([
     noExternal: [/.*/],
     outExtension: () => ({ js: '.mjs' }),
   },
+  {
+    entry: { 'auto-track': 'src/hook/auto-track.mjs' },
+    format: ['esm'],
+    banner: { js: '#!/usr/bin/env node' },
+    outExtension: () => ({ js: '.mjs' }),
+  },
+  {
+    entry: { 'git-post-commit': 'src/hook/git-post-commit.mjs' },
+    format: ['esm'],
+    banner: { js: '#!/usr/bin/env node' },
+    outExtension: () => ({ js: '.mjs' }),
+  },
 ]);

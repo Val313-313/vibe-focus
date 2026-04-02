@@ -36,6 +36,7 @@ function createCloudConfig(overrides: Partial<CloudConfig> = {}): CloudConfig {
     userId: '550e8400-e29b-41d4-a716-446655440000',
     projectId: '660e8400-e29b-41d4-a716-446655440000',
     linkedAt: '2025-01-01T00:00:00.000Z',
+    apiKey: null,
     ...overrides,
   };
 }

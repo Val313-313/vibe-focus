@@ -14,6 +14,7 @@ export const unlinkCommand = new Command('unlink')
 
     config.projectId = null;
     config.linkedAt = null;
+    config.apiKey = null;
     writeCloudConfig(config);
 
     success('Project unlinked. Heartbeats will no longer be sent.');

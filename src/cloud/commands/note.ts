@@ -2,20 +2,20 @@ import { Command } from 'commander';
 import { readCloudConfig, isValidUUID } from '../core/cloud-state.js';
 import { success, error } from '../../ui/output.js';
 
-export const pushCommand = new Command('push')
-  .description('Post a message to your vibeteamz project team chat')
-  .argument('<message>', 'Message to post')
-  .action(async (message: string) => {
+export const noteCommand = new Command('note')
+  .description('Post a note to project activity feed')
+  .argument('<text>', 'Note text')
+  .action(async (text: string) => {
     let config;
     try {
       config = readCloudConfig();
     } catch {
-      error('Cloud config is corrupted. Re-run "vf cloud login".');
+      error('Cloud config is corrupted. Re-run "vf vibeteamz login".');
       return;
     }
 
     if (!config.accessToken || !config.userId || !config.projectId) {
-      error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+      error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
       return;
     }
 
@@ -25,7 +25,7 @@ export const pushCommand = new Command('push')
     }
 
     try {
-      const res = await fetch(`${config.apiUrl}/api/messages`, {
+      const res = await fetch(`${config.apiUrl}/api/activity/push`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -33,17 +33,17 @@ export const pushCommand = new Command('push')
         },
         body: JSON.stringify({
           project_id: config.projectId,
-          user_id: config.userId,
-          body: message,
+          type: 'note',
+          message: text,
         }),
         signal: AbortSignal.timeout(10_000),
       });
 
       if (res.ok) {
-        success('Message posted to team chat.');
+        success('Note posted to activity feed.');
       } else {
         const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        error(`Failed to post message: ${data.error ?? `HTTP ${res.status}`}`);
+        error(`Failed to post note: ${data.error ?? `HTTP ${res.status}`}`);
       }
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'TimeoutError') {

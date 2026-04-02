@@ -51,6 +51,7 @@ export function readCloudCache(): CloudCache | null {
       updatedAt: raw.updatedAt,
       team: Array.isArray(raw.team) ? raw.team : [],
       messages: Array.isArray(raw.messages) ? raw.messages : [],
+      suggestions: Array.isArray(raw.suggestions) ? raw.suggestions : undefined,
     };
   } catch {
     return null;

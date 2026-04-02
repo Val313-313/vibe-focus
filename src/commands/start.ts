@@ -9,6 +9,8 @@ import { fireHeartbeat } from '../cloud/core/heartbeat.js';
 import { fireCloudActivity } from '../cloud/core/api.js';
 import { fireDiscordEvent } from '../team/core/discord.js';
 import { logTaskStarted } from '../core/shared-log.js';
+import { isCloudLinked } from '../cloud/core/cloud-state.js';
+import chalk from 'chalk';
 
 export const startCommand = new Command('start')
   .description('Start working on a task')
@@ -110,6 +112,13 @@ export const startCommand = new Command('start')
     const updated = state.tasks.find((t) => t.id === id)!;
     success(`Started task ${id}` + (worker ? ` [worker: ${worker}]` : ''));
     printFocusCard(updated);
+
+    // Cloud status indicator
+    if (isCloudLinked()) {
+      console.log(chalk.green('  ♥ vibeteamz: connected'));
+    } else {
+      console.log(chalk.dim('  ♥ vibeteamz: not linked') + chalk.dim(' (run vf setup)'));
+    }
     console.log('');
     if (worker) {
       info(`Worker "${worker}" is now focused on this task.`);

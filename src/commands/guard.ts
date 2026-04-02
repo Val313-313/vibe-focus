@@ -11,12 +11,18 @@ import { updateConfig } from '../core/config.js';
 import { success, error, info, warn } from '../ui/output.js';
 
 const HOOK_SCRIPT_NAME = 'vibe-focus-guard.mjs';
+const AUTO_TRACK_SCRIPT_NAME = 'vibe-focus-auto-track.mjs';
 const MARKER_START = '<!-- vibe-focus:start -->';
 const MARKER_END = '<!-- vibe-focus:end -->';
 
 function getBundledHookPath(): string {
   const thisFile = fileURLToPath(import.meta.url);
   return path.join(path.dirname(thisFile), 'guard-hook.mjs');
+}
+
+function getBundledAutoTrackPath(): string {
+  const thisFile = fileURLToPath(import.meta.url);
+  return path.join(path.dirname(thisFile), 'auto-track.mjs');
 }
 
 function getSettingsPath(): string {
@@ -133,9 +139,11 @@ export function installGuard(agent: AgentType): void {
   fs.writeFileSync(path.join(rulesDir, config.rulesFile), rulesContent);
 
   if (agent === 'claude') {
-    // Claude: also install hook + register in settings.json
+    // Claude: also install hooks + register in settings.json
     const hooksDir = path.join(cwd, config.hookDir!);
     fs.mkdirSync(hooksDir, { recursive: true });
+
+    // 1. Guard hook (UserPromptSubmit) — focus enforcement
     const hookPath = path.join(hooksDir, HOOK_SCRIPT_NAME);
     const bundledHook = getBundledHookPath();
     if (!fs.existsSync(bundledHook)) {
@@ -145,22 +153,49 @@ export function installGuard(agent: AgentType): void {
     fs.copyFileSync(bundledHook, hookPath);
     fs.chmodSync(hookPath, '755');
 
+    // 2. Auto-track hook (PostToolUse) — heartbeats on file edits
+    const autoTrackPath = path.join(hooksDir, AUTO_TRACK_SCRIPT_NAME);
+    const bundledAutoTrack = getBundledAutoTrackPath();
+    if (fs.existsSync(bundledAutoTrack)) {
+      fs.copyFileSync(bundledAutoTrack, autoTrackPath);
+      fs.chmodSync(autoTrackPath, '755');
+    }
+
     const settings = readSettings();
     if (!settings.hooks) settings.hooks = {};
-    if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
 
-    const hookCommand = `node "${hookPath}"`;
-    const alreadyInstalled = settings.hooks.UserPromptSubmit.some(
+    // Register UserPromptSubmit (guard)
+    if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
+    const guardCommand = `node "${hookPath}"`;
+    const guardInstalled = settings.hooks.UserPromptSubmit.some(
       (entry: any) => entry.hooks?.some((h: any) => h.command?.includes(HOOK_SCRIPT_NAME))
     );
-
-    if (!alreadyInstalled) {
+    if (!guardInstalled) {
       settings.hooks.UserPromptSubmit.push({
         hooks: [{
           type: 'command',
-          command: hookCommand,
+          command: guardCommand,
         }],
       });
+    }
+
+    // Register PostToolUse (auto-track heartbeats on Edit/Write)
+    if (fs.existsSync(bundledAutoTrack)) {
+      if (!settings.hooks.PostToolUse) settings.hooks.PostToolUse = [];
+      const trackCommand = `node "${autoTrackPath}"`;
+      const trackInstalled = settings.hooks.PostToolUse.some(
+        (entry: any) => entry.hooks?.some((h: any) => h.command?.includes(AUTO_TRACK_SCRIPT_NAME))
+      );
+      if (!trackInstalled) {
+        settings.hooks.PostToolUse.push({
+          matcher: 'Edit|Write',
+          hooks: [{
+            type: 'command',
+            command: trackCommand,
+            async: true,
+          }],
+        });
+      }
     }
 
     writeSettings(settings);
@@ -234,11 +269,11 @@ function removeGuard(agent: AgentType): void {
   }
 
   if (agent === 'claude') {
-    // Remove hook script
+    // Remove hook scripts
     const hookPath = path.join(cwd, config.hookDir!, HOOK_SCRIPT_NAME);
-    if (fs.existsSync(hookPath)) {
-      fs.unlinkSync(hookPath);
-    }
+    if (fs.existsSync(hookPath)) fs.unlinkSync(hookPath);
+    const autoTrackPath = path.join(cwd, config.hookDir!, AUTO_TRACK_SCRIPT_NAME);
+    if (fs.existsSync(autoTrackPath)) fs.unlinkSync(autoTrackPath);
 
     // Remove from settings
     const settings = readSettings();
@@ -246,13 +281,15 @@ function removeGuard(agent: AgentType): void {
       settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
         (entry: any) => !entry.hooks?.some((h: any) => h.command?.includes(HOOK_SCRIPT_NAME))
       );
-      if (settings.hooks.UserPromptSubmit.length === 0) {
-        delete settings.hooks.UserPromptSubmit;
-      }
-      if (Object.keys(settings.hooks).length === 0) {
-        delete settings.hooks;
-      }
+      if (settings.hooks.UserPromptSubmit.length === 0) delete settings.hooks.UserPromptSubmit;
     }
+    if (settings.hooks?.PostToolUse) {
+      settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
+        (entry: any) => !entry.hooks?.some((h: any) => h.command?.includes(AUTO_TRACK_SCRIPT_NAME))
+      );
+      if (settings.hooks.PostToolUse.length === 0) delete settings.hooks.PostToolUse;
+    }
+    if (settings.hooks && Object.keys(settings.hooks).length === 0) delete settings.hooks;
     writeSettings(settings);
   }
 
