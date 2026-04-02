@@ -69,8 +69,9 @@ export const tasksCommand = new Command('tasks')
     let config;
     try {
       config = readCloudConfig();
-    } catch {
-      error('Cloud config is corrupted. Re-run "vf vibeteamz login".');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      error(`Cloud config error: ${msg}`);
       return;
     }
 
@@ -98,7 +99,11 @@ export const tasksCommand = new Command('tasks')
       }
 
       const tasks = (await tasksRes.json()) as TaskRow[];
-      const milestones = msRes.ok ? ((await msRes.json()) as MilestoneRow[]) : [];
+      let milestones: MilestoneRow[] = [];
+      if (msRes.ok) {
+        const msBody = await msRes.json();
+        milestones = Array.isArray(msBody) ? msBody : (msBody.milestones ?? []);
+      }
 
       // Build milestone lookup
       const msMap = new Map<string, MilestoneRow>();
@@ -170,7 +175,8 @@ export const tasksCommand = new Command('tasks')
       if (e instanceof DOMException && e.name === 'TimeoutError') {
         error('Request timed out. Check your network.');
       } else {
-        error('Failed to connect to vibeteamz.');
+        const msg = e instanceof Error ? e.message : String(e);
+        error(`Failed to connect to vibeteamz: ${msg}`);
       }
     }
   });
