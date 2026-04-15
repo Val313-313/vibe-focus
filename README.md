@@ -53,7 +53,8 @@ your AI agent didn't stop you. it did exactly what you asked. every single time.
 ## 30 seconds to focus
 
 ```bash
-npm install -g vibe-focus
+# Install directly from GitHub (recommended)
+npm install -g github:Val313-313/vibe-focus
 
 cd your-project
 vf init
