@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/vibe-focus"><img src="https://img.shields.io/npm/v/vibe-focus.svg" alt="npm version"></a>
-  <a href="https://github.com/vibe-focus/vibe-focus/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/vibe-focus.svg" alt="license"></a>
-  <a href="https://www.npmjs.com/package/vibe-focus"><img src="https://img.shields.io/npm/dm/vibe-focus.svg" alt="downloads"></a>
+  <a href="https://github.com/Val313-313/vibe-focus/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Val313-313/vibe-focus" alt="license"></a>
+  <a href="https://github.com/Val313-313/vibe-focus"><img src="https://img.shields.io/github/stars/Val313-313/vibe-focus" alt="stars"></a>
+  <img src="https://img.shields.io/badge/version-0.1.1-green" alt="version">
 </p>
 
 <p align="center">
@@ -50,12 +50,17 @@ your AI agent didn't stop you. it did exactly what you asked. every single time.
 - **multi-tab workers** — `vf start t2 --worker api` runs parallel tasks in separate terminal tabs. each worker tracks independently.
 - **extension API** — `import { loadState } from 'vibe-focus'` — build plugins on top of the core. powers `vibe-focus-team`.
 
+## install
+
+```bash
+npm install -g github:Val313-313/vibe-focus
+```
+
+no npm registry needed. installs directly from GitHub.
+
 ## 30 seconds to focus
 
 ```bash
-# Install directly from GitHub (recommended)
-npm install -g github:Val313-313/vibe-focus
-
 cd your-project
 vf init
 vf scope --purpose "Build a REST API" --in "endpoints" "auth" --out "frontend" "deployment"
@@ -270,7 +275,7 @@ const scope = loadScope();            // project scope
 const active = state.tasks.find(t => t.status === 'active');
 ```
 
-powers the `vibe-focus-team` package for shared team workflows. publish your own extensions via npm.
+powers the `vibe-focus-team` package for shared team workflows. publish your own extensions.
 
 ## all commands
 
