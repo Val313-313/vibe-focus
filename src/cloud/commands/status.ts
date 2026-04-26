@@ -29,7 +29,7 @@ export const statusCommand = new Command('status')
     if (opts.ping) {
       console.log('');
 
-      if (!config.accessToken || !config.userId || !config.projectId) {
+      if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
         error('Cannot ping: not fully configured (need login + link).');
         return;
       }

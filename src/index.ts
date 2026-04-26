@@ -21,6 +21,7 @@ import { hookCommand } from './commands/hook.js';
 import { msgCommand } from './commands/msg.js';
 import { setupCommand } from './commands/setup.js';
 import { joinCommand } from './commands/join.js';
+import { allCommand } from './commands/all.js';
 import { register as registerTeam } from './team/register.js';
 import { registerCloud } from './cloud/register.js';
 
@@ -29,7 +30,7 @@ const program = new Command();
 program
   .name('vf')
   .description('Vibe Focus - Focus Guardian for vibe coding sessions')
-  .version('0.1.0');
+  .version('0.2.0');
 
 program.addCommand(initCommand);
 program.addCommand(addCommand);
@@ -54,6 +55,7 @@ program.addCommand(hookCommand);
 program.addCommand(msgCommand);
 program.addCommand(setupCommand);
 program.addCommand(joinCommand);
+program.addCommand(allCommand);
 registerTeam(program);
 registerCloud(program);
 // Default to status when no command given

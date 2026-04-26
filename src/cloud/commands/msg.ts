@@ -5,7 +5,9 @@ import { success, error } from '../../ui/output.js';
 export const msgCommand = new Command('msg')
   .description('Send a message to your project team chat')
   .argument('<message>', 'Message to send')
-  .action(async (message: string) => {
+  .option('--to <usernames...>', 'Mention users (auto-adds @ prefix)')
+  .option('--reply <message-id>', 'Reply to a message')
+  .action(async (message: string, opts: { to?: string[]; reply?: string }) => {
     let config;
     try {
       config = readCloudConfig();
@@ -14,7 +16,7 @@ export const msgCommand = new Command('msg')
       return;
     }
 
-    if (!config.accessToken || !config.userId || !config.projectId) {
+    if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
       error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
       return;
     }
@@ -24,17 +26,26 @@ export const msgCommand = new Command('msg')
       return;
     }
 
+    // Auto-prepend @mentions to message body
+    let finalMessage = message;
+    if (opts.to?.length) {
+      const mentionPrefix = opts.to.map(u => `@${u.replace(/^@/, '')}`).join(' ');
+      finalMessage = `${mentionPrefix} ${message}`;
+    }
+
     try {
+      const token = config.apiKey ?? config.accessToken;
       const res = await fetch(`${config.apiUrl}/api/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.accessToken}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           project_id: config.projectId,
           user_id: config.userId,
-          body: message,
+          body: finalMessage,
+          reply_to: opts.reply || null,
         }),
         signal: AbortSignal.timeout(10_000),
       });

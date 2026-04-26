@@ -16,7 +16,7 @@ export const milestoneCommand = new Command('milestone')
       return;
     }
 
-    if (!config.accessToken || !config.userId || !config.projectId) {
+    if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
       error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
       return;
     }
@@ -31,7 +31,7 @@ export const milestoneCommand = new Command('milestone')
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.accessToken}`,
+          'Authorization': `Bearer ${config.apiKey ?? config.accessToken}`,
         },
         body: JSON.stringify({
           title,

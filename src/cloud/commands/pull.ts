@@ -10,6 +10,36 @@ import type {
   CloudSessionRow,
 } from '../types.js';
 
+type PullTaskRow = {
+  id: string;
+  title: string;
+  status: 'todo' | 'in_progress' | 'done';
+  milestone_id: string | null;
+  assigned_to: string | null;
+};
+
+type PullMilestoneRow = {
+  id: string;
+  title: string;
+  status: string;
+  due_date: string | null;
+};
+
+/** Fetch from vibeteamz API using API key (never expires) */
+async function apiFetch<T>(baseUrl: string, path: string, token: string): Promise<{ success: true; data: T } | { success: false }> {
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return { success: false };
+    const data = await res.json();
+    return { success: true, data: data as T };
+  } catch {
+    return { success: false };
+  }
+}
+
 const g = chalk.green;
 const gB = chalk.greenBright;
 const gD = chalk.dim.green;
@@ -92,8 +122,8 @@ export const pullCommand = new Command('pull')
       return;
     }
 
-    if (!config.accessToken || !config.userId || !config.projectId) {
-      error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+    if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+      error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
       return;
     }
 
@@ -103,9 +133,13 @@ export const pullCommand = new Command('pull')
     }
 
     const pid = config.projectId;
+    const token = config.apiKey ?? config.accessToken ?? '';
+    const baseUrl = config.apiUrl;
 
-    // Fetch all 4 queries in parallel
-    const [membersResult, presenceResult, activityResult, sessionsResult] = await Promise.all([
+    // Fetch all 6 queries in parallel
+    // Tasks + milestones use API routes (API key auth, never expires)
+    // Presence/members/activity/sessions use PostgREST (JWT auth, may expire)
+    const [membersResult, presenceResult, activityResult, sessionsResult, tasksApiResult, msApiResult] = await Promise.all([
       supabaseQuery<CloudMemberRow>(
         'members',
         `project_id=eq.${pid}&select=user_id,role,joined_at,profiles(username,display_name,availability,score,streak_days)&order=joined_at.asc`,
@@ -122,7 +156,17 @@ export const pullCommand = new Command('pull')
         'sessions',
         `project_id=eq.${pid}&select=id,started_by,started_at,ended_at,participants&order=started_at.desc&limit=5`,
       ),
+      apiFetch<PullTaskRow[]>(baseUrl, `/api/projects/${pid}/tasks`, token),
+      apiFetch<PullMilestoneRow[]>(baseUrl, `/api/projects/${pid}/milestones`, token),
     ]);
+
+    // Normalize API results to match supabaseQuery shape
+    const tasksResult = tasksApiResult.success
+      ? { success: true as const, data: tasksApiResult.data }
+      : { success: false as const, data: [] as PullTaskRow[] };
+    const milestonesResult = msApiResult.success
+      ? { success: true as const, data: Array.isArray(msApiResult.data) ? msApiResult.data : ((msApiResult.data as any).milestones ?? []) as PullMilestoneRow[] }
+      : { success: false as const, data: [] as PullMilestoneRow[] };
 
     if (opts.json) {
       console.log(JSON.stringify({
@@ -130,6 +174,8 @@ export const pullCommand = new Command('pull')
         presence: presenceResult.success ? presenceResult.data : [],
         activity: activityResult.success ? activityResult.data : [],
         sessions: sessionsResult.success ? sessionsResult.data : [],
+        tasks: tasksResult.success ? tasksResult.data : [],
+        milestones: milestonesResult.success ? milestonesResult.data : [],
       }, null, 2));
       return;
     }
@@ -208,6 +254,77 @@ export const pullCommand = new Command('pull')
       }
     } else {
       lines.push(boxRow(d('   No presence data.'), W));
+    }
+
+    // -- TASKS & MILESTONES --
+    lines.push(sectionHeader('TASKS', W));
+    lines.push(boxEmpty(W));
+
+    if (tasksResult.success && tasksResult.data.length > 0) {
+      const allTasks = tasksResult.data;
+      const milestones = milestonesResult.success ? milestonesResult.data : [];
+      const msMap = new Map<string, PullMilestoneRow>();
+      for (const ms of milestones) msMap.set(ms.id, ms);
+
+      // Group tasks by milestone
+      const byMilestone = new Map<string | null, PullTaskRow[]>();
+      for (const t of allTasks) {
+        const key = t.milestone_id;
+        if (!byMilestone.has(key)) byMilestone.set(key, []);
+        byMilestone.get(key)!.push(t);
+      }
+
+      // Show milestoned groups first, then backlog
+      const msKeys = [...byMilestone.keys()].sort((a, b) => {
+        if (a === null) return 1;
+        if (b === null) return -1;
+        return 0;
+      });
+
+      for (const msId of msKeys) {
+        const groupTasks = byMilestone.get(msId)!;
+        const doneCount = groupTasks.filter(t => t.status === 'done').length;
+        const total = groupTasks.length;
+        const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+
+        // Milestone header with progress bar
+        const msTitle = msId ? (msMap.get(msId)?.title ?? msId.slice(0, 8)) : 'Backlog';
+        const msIcon = msId ? y('\u25c9') : d('\u2261');
+        const progressWidth = 16;
+        const filled = total > 0 ? Math.round((doneCount / total) * progressWidth) : 0;
+        const bar = y('\u2588'.repeat(filled)) + d('\u2591'.repeat(progressWidth - filled));
+        const statsStr = d(`${doneCount}/${total}`) + ' ' + (pct > 0 ? y(`${pct}%`) : d('0%'));
+
+        lines.push(boxRow(
+          '   ' + msIcon + ' ' + b(msTitle.padEnd(24)) + bar + ' ' + statsStr,
+          W,
+        ));
+
+        // Show individual tasks (open ones only for brevity, done shown as count)
+        const openTasks = groupTasks.filter(t => t.status !== 'done');
+        for (const t of openTasks) {
+          const icon = t.status === 'in_progress' ? c('\u25d0') : chalk.white('\u25cb');
+          const title = t.title.length > 36 ? t.title.slice(0, 33) + '...' : t.title;
+          const owner = t.assigned_to === config.userId ? d('@you') : (t.assigned_to ? d(t.assigned_to.slice(0, 8)) : d(''));
+          lines.push(boxRow(
+            '      ' + icon + ' ' + title.padEnd(38) + owner,
+            W,
+          ));
+        }
+        lines.push(boxEmpty(W));
+      }
+
+      // Summary
+      const totalAll = allTasks.length;
+      const totalDone = allTasks.filter(t => t.status === 'done').length;
+      const totalActive = allTasks.filter(t => t.status === 'in_progress').length;
+      const parts: string[] = [];
+      parts.push(`${totalDone}/${totalAll} done`);
+      if (totalActive > 0) parts.push(c(`${totalActive} active`));
+      if (milestones.length > 0) parts.push(`${milestones.length} milestone${milestones.length > 1 ? 's' : ''}`);
+      lines.push(boxRow(d('   ' + parts.join(' \u00b7 ')), W));
+    } else {
+      lines.push(boxRow(d('   No tasks.'), W));
     }
 
     // -- RECENT ACTIVITY --

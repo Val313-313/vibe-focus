@@ -14,8 +14,8 @@ export const pushCommand = new Command('push')
       return;
     }
 
-    if (!config.accessToken || !config.userId || !config.projectId) {
-      error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+    if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+      error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
       return;
     }
 
@@ -29,7 +29,7 @@ export const pushCommand = new Command('push')
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.accessToken}`,
+          'Authorization': `Bearer ${config.apiKey ?? config.accessToken}`,
         },
         body: JSON.stringify({
           project_id: config.projectId,

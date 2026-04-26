@@ -6,7 +6,7 @@ import { filterSensitiveFiles } from '../../team/core/validation.js';
 import { readCloudConfig } from './cloud-state.js';
 import { writeCloudCache } from './cloud-cache.js';
 import { refreshAccessToken } from './token-refresh.js';
-import type { HeartbeatPayload, HeartbeatResult, HeartbeatSuggestion, CloudConfig } from '../types.js';
+import type { HeartbeatPayload, HeartbeatResult, HeartbeatSuggestion, HeartbeatTask, HeartbeatNotification, CloudConfig } from '../types.js';
 
 /** Maximum number of active files to include in payload */
 const MAX_FILES = 50;
@@ -16,6 +16,28 @@ const HEARTBEAT_TIMEOUT_MS = 5_000;
 
 /** Maximum allowed payload size in bytes (safety limit) */
 const MAX_PAYLOAD_BYTES = 64_000;
+
+/** Refresh JWT if it expires within this many seconds (10 minutes) */
+const TOKEN_REFRESH_MARGIN_S = 600;
+
+/**
+ * Check if a JWT is expired or will expire within the given margin.
+ * Decodes the payload without verification — we only need the `exp` claim
+ * to decide whether to refresh proactively.
+ */
+function isTokenExpiringSoon(token: string | null, marginSeconds: number = TOKEN_REFRESH_MARGIN_S): boolean {
+  if (!token) return true;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+    if (typeof payload.exp !== 'number') return true;
+    const now = Math.floor(Date.now() / 1000);
+    return payload.exp - now < marginSeconds;
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Build a heartbeat payload from current CLI state.
@@ -154,6 +176,7 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
             updatedAt: new Date().toISOString(),
             team: Array.isArray(retryResult.team) ? retryResult.team as HeartbeatResult['team'] & [] : [],
             messages: Array.isArray(retryResult.messages) ? retryResult.messages as HeartbeatResult['messages'] & [] : [],
+            tasks: Array.isArray(retryResult.tasks) ? retryResult.tasks as HeartbeatTask[] : undefined,
             suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions as HeartbeatSuggestion[] : undefined,
           });
         } catch {
@@ -166,7 +189,9 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
         error: retryResult.error as string | undefined,
         team: Array.isArray(retryResult.team) ? retryResult.team as HeartbeatResult['team'] : undefined,
         messages: Array.isArray(retryResult.messages) ? retryResult.messages as HeartbeatResult['messages'] : undefined,
+        tasks: Array.isArray(retryResult.tasks) ? retryResult.tasks as HeartbeatTask[] : undefined,
         suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions as HeartbeatSuggestion[] : undefined,
+        notifications: Array.isArray(retryResult.notifications) ? retryResult.notifications as HeartbeatNotification[] : undefined,
       };
     }
 
@@ -197,6 +222,7 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
         updatedAt: new Date().toISOString(),
         team: Array.isArray(result.team) ? result.team as HeartbeatResult['team'] & [] : [],
         messages: Array.isArray(result.messages) ? result.messages as HeartbeatResult['messages'] & [] : [],
+        tasks: Array.isArray(result.tasks) ? result.tasks as HeartbeatTask[] : undefined,
         suggestions: Array.isArray(result.suggestions) ? result.suggestions as HeartbeatSuggestion[] : undefined,
       });
     } catch {
@@ -204,12 +230,20 @@ export async function sendHeartbeat(payload: HeartbeatPayload): Promise<Heartbea
     }
   }
 
+  // Proactively refresh JWT if it's expiring soon — even when API key is used for heartbeats.
+  // This keeps the JWT fresh for any code paths that may need it (e.g., PostgREST queries).
+  if (config.refreshToken && isTokenExpiringSoon(config.accessToken)) {
+    refreshAccessToken().catch(() => {});
+  }
+
   return {
     ok: result.ok as boolean,
     error: result.error as string | undefined,
     team: Array.isArray(result.team) ? result.team as HeartbeatResult['team'] : undefined,
     messages: Array.isArray(result.messages) ? result.messages as HeartbeatResult['messages'] : undefined,
+    tasks: Array.isArray(result.tasks) ? result.tasks as HeartbeatTask[] : undefined,
     suggestions: Array.isArray(result.suggestions) ? result.suggestions as HeartbeatSuggestion[] : undefined,
+    notifications: Array.isArray(result.notifications) ? result.notifications as HeartbeatNotification[] : undefined,
   };
 }
 

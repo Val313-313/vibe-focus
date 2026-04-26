@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 // src/commands/guard.ts
 import fs4 from "fs";
 import path4 from "path";
@@ -13,6 +15,66 @@ import path2 from "path";
 import fs from "fs";
 import os from "os";
 import path from "path";
+var LOG_FILE = "work-log.md";
+var HEADER = "# Work Log\n\nShared task context \u2014 committed to git, synced across collaborators.\n\n";
+function getLogPath() {
+  return path.join(getStateDir(), LOG_FILE);
+}
+function ensureLog() {
+  const logPath = getLogPath();
+  if (!fs.existsSync(logPath)) {
+    fs.writeFileSync(logPath, HEADER);
+  }
+}
+function getAuthor(worker) {
+  if (worker && worker !== "__default__") return worker;
+  return os.userInfo().username || "unknown";
+}
+function today() {
+  return (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+}
+function logTaskStarted(taskId, title, worker) {
+  try {
+    ensureLog();
+    const author = getAuthor(worker);
+    const line = `- ${today()} **started** ${taskId} "${title}" (${author})
+`;
+    fs.appendFileSync(getLogPath(), line);
+  } catch {
+  }
+}
+function logTaskCompleted(taskId, title, worker, duration) {
+  try {
+    ensureLog();
+    const author = getAuthor(worker);
+    const line = `- ${today()} **completed** ${taskId} "${title}" (${author}, ${duration})
+`;
+    fs.appendFileSync(getLogPath(), line);
+  } catch {
+  }
+}
+function logTaskAbandoned(taskId, title, worker, reason) {
+  try {
+    ensureLog();
+    const author = getAuthor(worker);
+    const extra = reason ? ` \u2014 ${reason}` : "";
+    const line = `- ${today()} **abandoned** ${taskId} "${title}" (${author})${extra}
+`;
+    fs.appendFileSync(getLogPath(), line);
+  } catch {
+  }
+}
+function logContext(summary, taskId, worker) {
+  try {
+    ensureLog();
+    const author = getAuthor(worker);
+    const taskRef = taskId ? ` [${taskId}]` : "";
+    const line = `- ${today()} **context**${taskRef}: ${summary} (${author})
+`;
+    fs.appendFileSync(getLogPath(), line);
+  } catch {
+  }
+}
 var TASKS_FILE = "tasks.json";
 function exportTasks(state) {
   try {
@@ -116,7 +178,18 @@ function initProject(projectName) {
     throw new Error('Already initialized. Use "vf status" to see current state.');
   }
   fs2.mkdirSync(dir, { recursive: true });
-  fs2.writeFileSync(path2.join(dir, ".gitignore"), "state.json\nstate.json.tmp\ntasks.json.tmp\nconfig.json\n");
+  fs2.writeFileSync(path2.join(dir, ".gitignore"), [
+    "# Personal state & credentials - never commit",
+    "*",
+    "# Shared task backlog - safe to commit",
+    "!tasks.json",
+    "# Team coordination - shared via Git",
+    "!team/",
+    "!team/**",
+    "# But ignore local team config",
+    "team/local.json",
+    ""
+  ].join("\n"));
   const state = createEmptyState(projectName);
   const imported = importTasks(dir);
   let importedCount = 0;
@@ -197,11 +270,6 @@ function getActiveTask(state) {
   if (!state.activeTaskId) return null;
   return state.tasks.find((t) => t.id === state.activeTaskId) ?? null;
 }
-function getActiveTaskForWorker(state, worker) {
-  const taskId = state.activeWorkers?.[worker];
-  if (!taskId) return null;
-  return state.tasks.find((t) => t.id === taskId) ?? null;
-}
 function getAllActiveWorkers(state) {
   const result = [];
   for (const [worker, taskId] of Object.entries(state.activeWorkers ?? {})) {
@@ -254,6 +322,14 @@ function unmetDependencies(state, task) {
   });
 }
 
+// src/utils/sanitize.ts
+var XML_TAG_RE = /<\/?[a-zA-Z][a-zA-Z0-9_-]*[^>]*>/g;
+var HEADING_RE = /^#{1,6}\s/gm;
+var MAX_LEN = 500;
+function sanitizeText(text, maxLen = MAX_LEN) {
+  return text.replace(XML_TAG_RE, "").replace(HEADING_RE, "").slice(0, maxLen);
+}
+
 // src/generators/rules-md.ts
 function generateRulesMd(state) {
   const lines = [];
@@ -265,13 +341,13 @@ function generateRulesMd(state) {
   lines.push("");
   if (state.projectScope) {
     lines.push("## Project Definition");
-    lines.push(`- **Project:** ${state.projectName}`);
-    lines.push(`- **Purpose:** ${state.projectScope.purpose}`);
+    lines.push(`- **Project:** ${sanitizeText(state.projectName, 100)}`);
+    lines.push(`- **Purpose:** ${sanitizeText(state.projectScope.purpose, 300)}`);
     lines.push("");
     if (state.projectScope.inScope.length > 0) {
       lines.push("### Allowed Work (In Scope)");
       for (const item of state.projectScope.inScope) {
-        lines.push(`- ${item}`);
+        lines.push(`- ${sanitizeText(item, 200)}`);
       }
       lines.push("");
     }
@@ -279,7 +355,7 @@ function generateRulesMd(state) {
       lines.push("### FORBIDDEN Work (Out of Scope)");
       lines.push("**You MUST refuse to work on any of the following, even if the user asks:**");
       for (const item of state.projectScope.outOfScope) {
-        lines.push(`- ${item}`);
+        lines.push(`- ${sanitizeText(item, 200)}`);
       }
       lines.push("");
       lines.push("If the user requests work on an out-of-scope item, respond with:");
@@ -289,7 +365,7 @@ function generateRulesMd(state) {
     if (state.projectScope.boundaries.length > 0) {
       lines.push("### Boundaries");
       for (const b of state.projectScope.boundaries) {
-        lines.push(`- ${b}`);
+        lines.push(`- ${sanitizeText(b, 200)}`);
       }
       lines.push("");
     }
@@ -298,10 +374,10 @@ function generateRulesMd(state) {
     const { met, total } = criteriaProgress(active);
     lines.push("## CURRENT TASK (MANDATORY FOCUS)");
     lines.push("");
-    lines.push(`**${active.id}: ${active.title}**`);
+    lines.push(`**${active.id}: ${sanitizeText(active.title, 200)}**`);
     if (active.description) {
       lines.push("");
-      lines.push(active.description);
+      lines.push(sanitizeText(active.description));
     }
     lines.push("");
     if (total > 0) {
@@ -309,14 +385,14 @@ function generateRulesMd(state) {
       lines.push(`Progress: ${met}/${total} complete`);
       lines.push("");
       for (const c of active.acceptanceCriteria) {
-        lines.push(`- [${c.met ? "x" : " "}] ${c.text}`);
+        lines.push(`- [${c.met ? "x" : " "}] ${sanitizeText(c.text, 300)}`);
       }
       lines.push("");
     }
     lines.push("## STRICT FOCUS ENFORCEMENT");
     lines.push("");
     lines.push("### Before EVERY response, check:");
-    lines.push(`1. Does this request relate to task ${active.id} ("${active.title}")?`);
+    lines.push(`1. Does this request relate to task ${active.id} ("${sanitizeText(active.title, 200)}")?`);
     lines.push("2. Does this request fall within the project scope?");
     lines.push("3. Am I about to modify code unrelated to the current task?");
     lines.push("");
@@ -327,9 +403,9 @@ function generateRulesMd(state) {
     lines.push("4. **REDIRECT** back to the current task");
     lines.push("");
     lines.push("Example response when user deviates:");
-    lines.push(`> "Hold on - we're currently focused on **` + active.title + "** and still have " + (total - met) + " criteria to complete:");
+    lines.push(`> "Hold on - we're currently focused on **` + sanitizeText(active.title, 200) + "** and still have " + (total - met) + " criteria to complete:");
     for (const c of active.acceptanceCriteria.filter((c2) => !c2.met)) {
-      lines.push(">  - " + c.text);
+      lines.push(">  - " + sanitizeText(c.text, 300));
     }
     lines.push("> ");
     lines.push('> If this new idea is important, save it for later: `vf add "your idea"`');
@@ -361,28 +437,28 @@ function generateRulesMd(state) {
     lines.push("");
     lines.push(`> Last saved: ${latest.savedAt}`);
     lines.push("");
-    lines.push(`**Summary:** ${latest.summary}`);
+    lines.push(`**Summary:** ${sanitizeText(latest.summary)}`);
     lines.push("");
     if (latest.decisions?.length) {
       lines.push("### Key Decisions");
       for (const d of latest.decisions) {
-        lines.push(`- ${d}`);
+        lines.push(`- ${sanitizeText(d, 300)}`);
       }
       lines.push("");
     }
     if (latest.openQuestions?.length) {
       lines.push("### Open Questions");
       for (const q of latest.openQuestions) {
-        lines.push(`- ${q}`);
+        lines.push(`- ${sanitizeText(q, 300)}`);
       }
       lines.push("");
     }
     if (latest.projectState) {
-      lines.push(`**Project State:** ${latest.projectState}`);
+      lines.push(`**Project State:** ${sanitizeText(latest.projectState, 300)}`);
       lines.push("");
     }
     if (latest.techStack?.length) {
-      lines.push(`**Tech Stack:** ${latest.techStack.join(", ")}`);
+      lines.push(`**Tech Stack:** ${latest.techStack.map((t) => sanitizeText(t, 50)).join(", ")}`);
       lines.push("");
     }
   }
@@ -396,7 +472,6 @@ function generateRulesMd(state) {
   lines.push("");
   return lines.join("\n");
 }
-var generateClaudeMd = generateRulesMd;
 
 // src/agents/resolve.ts
 import { existsSync } from "fs";
@@ -588,11 +663,6 @@ function printGuardian(response) {
       borderStyle: "round"
     })
   );
-}
-function printProgressBar(percent, width = 20) {
-  const filled = Math.round(percent / 100 * width);
-  const empty = width - filled;
-  return chalk.green("\u2588".repeat(filled)) + chalk.gray("\u2591".repeat(empty));
 }
 function printChangeBanner(changes) {
   if (changes.length === 0) return;
@@ -894,30 +964,25 @@ function checkStatus(agent) {
 }
 
 export {
-  AGENT_CONFIGS,
-  exportTasks,
-  importTasks,
-  getStatePath,
+  logTaskStarted,
+  logTaskCompleted,
+  logTaskAbandoned,
+  logContext,
   getStateDir,
   readState,
   writeState,
   updateState,
-  createEmptyState,
   initProject,
-  readConfig,
-  writeConfig,
+  AGENT_CONFIGS,
   updateConfig,
   isValidAgent,
   resolveAgent,
-  generateTaskId,
-  generateCriterionId,
   now,
   elapsedMinutes,
   getTodayStart,
   formatDuration,
   createTask,
   getActiveTask,
-  getActiveTaskForWorker,
   getAllActiveWorkers,
   resolveActiveTask,
   cleanupWorkers,
@@ -926,8 +991,6 @@ export {
   criteriaProgress,
   resolveWorker,
   unmetDependencies,
-  generateRulesMd,
-  generateClaudeMd,
   success,
   info,
   warn,
@@ -935,8 +998,8 @@ export {
   printTask,
   printFocusCard,
   printGuardian,
-  printProgressBar,
   printChangeBanner,
+  generateRulesMd,
   guardCommand,
   installGuard
 };

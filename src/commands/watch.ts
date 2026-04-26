@@ -7,7 +7,7 @@ import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 import { resolveWorker } from '../core/task.js';
 import { info, success } from '../ui/output.js';
 import { buildHeartbeatPayload, sendHeartbeat } from '../cloud/core/heartbeat.js';
-import type { HeartbeatSuggestion } from '../cloud/types.js';
+import type { HeartbeatSuggestion, HeartbeatNotification } from '../cloud/types.js';
 
 /** Heartbeat throttle — max once per 30 seconds */
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -86,6 +86,27 @@ export const watchCommand = new Command('watch')
     let pendingHeartbeat: ReturnType<typeof setTimeout> | null = null;
     let watcher: fs.FSWatcher | null = null;
 
+    const seenNotificationIds = new Set<string>();
+
+    function showNotifications(notifications?: HeartbeatNotification[]) {
+      if (!notifications || notifications.length === 0) return;
+      const time = new Date().toLocaleTimeString('de-DE', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      });
+      for (const n of notifications) {
+        if (seenNotificationIds.has(n.id)) continue;
+        seenNotificationIds.add(n.id);
+        const typeIcon =
+          n.type === 'mention' ? chalk.cyan('@') :
+          n.type === 'task_assigned' ? chalk.yellow('→') :
+          n.type === 'task_completed' ? chalk.green('✓') :
+          n.type === 'member_joined' ? chalk.green('+') :
+          chalk.magenta('★');
+        const actor = n.actor?.username ? chalk.bold(n.actor.username) : 'someone';
+        console.log(`  ${chalk.dim(time)} ${typeIcon} ${chalk.yellowBright('🔔')} ${actor} ${n.title}${n.body ? chalk.dim(` — ${n.body.slice(0, 60)}`) : ''}`);
+      }
+    }
+
     function showSuggestions(suggestions?: HeartbeatSuggestion[]) {
       if (!suggestions || suggestions.length === 0) return;
       const now = Date.now();
@@ -138,6 +159,7 @@ export const watchCommand = new Command('watch')
           if (result.ok) {
             console.log(`  ${chalk.dim(time)} ${chalk.magenta('♥')} heartbeat sent (${filesToSend.length} files)`);
             showSuggestions(result.suggestions);
+            showNotifications(result.notifications);
           }
         })
         .catch(() => {});
@@ -169,6 +191,7 @@ export const watchCommand = new Command('watch')
                 });
                 console.log(`  ${chalk.dim(time)} ${chalk.magenta('♥')} initial heartbeat sent`);
                 showSuggestions(r.suggestions);
+                showNotifications(r.notifications);
               }
             })
             .catch(() => {});

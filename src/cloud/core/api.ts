@@ -1,4 +1,5 @@
 import { readCloudConfig } from './cloud-state.js';
+import { refreshAccessToken } from './token-refresh.js';
 import type {
   CloudConfig,
   CloudResult,
@@ -20,9 +21,10 @@ const MAX_PAYLOAD_BYTES = 64_000;
 
 /**
  * Get required cloud config fields for Supabase PostgREST access.
- * Returns null if cloud is not fully configured.
+ * If the access token is missing but a refresh token exists, attempts
+ * to refresh before giving up.
  */
-function getSupabaseConfig(): Pick<CloudConfig, 'supabaseUrl' | 'supabaseAnonKey' | 'accessToken' | 'userId' | 'projectId'> | null {
+async function getSupabaseConfig(): Promise<Pick<CloudConfig, 'supabaseUrl' | 'supabaseAnonKey' | 'accessToken' | 'userId' | 'projectId'> | null> {
   let config: CloudConfig;
   try {
     config = readCloudConfig();
@@ -30,7 +32,19 @@ function getSupabaseConfig(): Pick<CloudConfig, 'supabaseUrl' | 'supabaseAnonKey
     return null;
   }
 
-  if (!config.supabaseUrl || !config.supabaseAnonKey || !config.accessToken || !config.userId || !config.projectId) {
+  if (!config.supabaseUrl || !config.supabaseAnonKey || !config.userId || !config.projectId) {
+    return null;
+  }
+
+  // If access token is missing but refresh token exists, try to refresh
+  if (!config.accessToken && config.refreshToken) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      config = readCloudConfig();
+    }
+  }
+
+  if (!config.accessToken) {
     return null;
   }
 
@@ -58,7 +72,7 @@ export async function supabaseQuery<T>(
   params: string,
   options: { timeout?: number } = {},
 ): Promise<SupabaseQueryResult<T>> {
-  const cfg = getSupabaseConfig();
+  const cfg = await getSupabaseConfig();
   if (!cfg) {
     return { success: false, error: 'Cloud not configured.' };
   }
@@ -79,6 +93,29 @@ export async function supabaseQuery<T>(
     });
   } catch {
     return { success: false, error: 'Request failed.' };
+  }
+
+  // On 401, try refreshing the JWT and retry once
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const freshConfig = readCloudConfig();
+      if (freshConfig.accessToken) {
+        try {
+          response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'apikey': cfg.supabaseAnonKey!,
+              'Authorization': `Bearer ${freshConfig.accessToken}`,
+              'Accept': 'application/json',
+            },
+            signal: AbortSignal.timeout(timeout),
+          });
+        } catch {
+          return { success: false, error: 'Request failed after token refresh.' };
+        }
+      }
+    }
   }
 
   if (!response.ok) {
@@ -125,7 +162,7 @@ export async function supabaseInsert<T>(
   table: string,
   payload: Record<string, unknown>,
 ): Promise<CloudResult<T>> {
-  const cfg = getSupabaseConfig();
+  const cfg = await getSupabaseConfig();
   if (!cfg) {
     return { success: false, error: 'Cloud not configured.' };
   }
@@ -154,6 +191,31 @@ export async function supabaseInsert<T>(
     return { success: false, error: 'Request failed.' };
   }
 
+  // On 401, try refreshing the JWT and retry once
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const freshConfig = readCloudConfig();
+      if (freshConfig.accessToken) {
+        try {
+          response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'apikey': cfg.supabaseAnonKey!,
+              'Authorization': `Bearer ${freshConfig.accessToken}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal',
+            },
+            body,
+            signal: AbortSignal.timeout(INSERT_TIMEOUT_MS),
+          });
+        } catch {
+          return { success: false, error: 'Request failed after token refresh.' };
+        }
+      }
+    }
+  }
+
   if (!response.ok) {
     return { success: false, error: `HTTP ${response.status}` };
   }
@@ -170,8 +232,8 @@ export async function supabaseInsert<T>(
  * - Never blocks the CLI
  */
 export function fireCloudActivity(activity: Omit<ActivityPayload, 'project_id' | 'user_id'>): void {
-  try {
-    const cfg = getSupabaseConfig();
+  // Fire and forget — async operation wrapped to never block
+  getSupabaseConfig().then(cfg => {
     if (!cfg) return;
 
     const payload: ActivityPayload = {
@@ -181,9 +243,8 @@ export function fireCloudActivity(activity: Omit<ActivityPayload, 'project_id' |
       message: activity.message,
     };
 
-    // Fire and forget
-    supabaseInsert('activity', payload as unknown as Record<string, unknown>).catch(() => {});
-  } catch {
+    return supabaseInsert('activity', payload as unknown as Record<string, unknown>);
+  }).catch(() => {
     // Silently ignore
-  }
+  });
 }

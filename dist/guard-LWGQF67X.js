@@ -1,8 +1,7 @@
-#!/usr/bin/env node
 import {
   guardCommand,
   installGuard
-} from "./chunk-V5W6M56L.js";
+} from "./chunk-FOBSJZT7.js";
 export {
   guardCommand,
   installGuard

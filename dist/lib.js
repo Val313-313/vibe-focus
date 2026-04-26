@@ -43,7 +43,7 @@ import {
   warn,
   writeConfig,
   writeState
-} from "./chunk-UB3FNZSM.js";
+} from "./chunk-FOBSJZT7.js";
 
 // src/core/guardian.ts
 function todaySwitchCount(state) {
@@ -198,7 +198,7 @@ function getStreak(history) {
 }
 function getAverageScore(history) {
   if (history.length === 0) return 0;
-  const sum = history.reduce((acc, d5) => acc + d5.score, 0);
+  const sum = history.reduce((acc, d10) => acc + d10.score, 0);
   return Math.round(sum / history.length);
 }
 
@@ -645,7 +645,7 @@ function detectConflicts(myFiles, coworkers) {
         coworkers: [cw.presence.username]
       });
     }
-    const dirOverlaps = [...myDirs].filter((d5) => theirDirs.has(d5 + "/") || theirDirs.has(d5));
+    const dirOverlaps = [...myDirs].filter((d10) => theirDirs.has(d10 + "/") || theirDirs.has(d10));
     if (dirOverlaps.length > 0 && fileCollisions.length === 0) {
       warnings.push({
         type: "directory_overlap",
@@ -713,7 +713,7 @@ var initCommand = new Command("init").description("Initialize team mode for this
   console.log(`  Team:      ${opts.teamName}`);
   if (!opts.skipGuard) {
     try {
-      const { installGuard: installGuard2 } = await import("./guard-2TAY3AV5.js");
+      const { installGuard: installGuard2 } = await import("./guard-LWGQF67X.js");
       const agent = resolveAgent();
       const config = AGENT_CONFIGS[agent];
       console.log("");
@@ -1016,19 +1016,20 @@ function writeCloudCache(cache) {
   fs4.writeFileSync(tmpPath, content, { mode: 384 });
   fs4.renameSync(tmpPath, filePath);
 }
-function readCloudCache() {
+function readCloudCache(maxAge = MAX_CACHE_AGE_MS) {
   const filePath = getCachePath();
   if (!fs4.existsSync(filePath)) return null;
   try {
     const raw = JSON.parse(fs4.readFileSync(filePath, "utf-8"));
     if (raw?.version !== 1 || !raw.updatedAt) return null;
     const ageMs = Date.now() - new Date(raw.updatedAt).getTime();
-    if (ageMs > MAX_CACHE_AGE_MS) return null;
+    if (ageMs > maxAge) return null;
     return {
       version: 1,
       updatedAt: raw.updatedAt,
       team: Array.isArray(raw.team) ? raw.team : [],
       messages: Array.isArray(raw.messages) ? raw.messages : [],
+      tasks: Array.isArray(raw.tasks) ? raw.tasks : void 0,
       suggestions: Array.isArray(raw.suggestions) ? raw.suggestions : void 0
     };
   } catch {
@@ -1083,6 +1084,20 @@ async function refreshAccessToken() {
 var MAX_FILES = 50;
 var HEARTBEAT_TIMEOUT_MS = 5e3;
 var MAX_PAYLOAD_BYTES = 64e3;
+var TOKEN_REFRESH_MARGIN_S = 600;
+function isTokenExpiringSoon(token, marginSeconds = TOKEN_REFRESH_MARGIN_S) {
+  if (!token) return true;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return true;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+    if (typeof payload.exp !== "number") return true;
+    const now2 = Math.floor(Date.now() / 1e3);
+    return payload.exp - now2 < marginSeconds;
+  } catch {
+    return true;
+  }
+}
 function buildHeartbeatPayload(overrides = {}) {
   let config;
   try {
@@ -1175,6 +1190,7 @@ async function sendHeartbeat(payload) {
             updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
             team: Array.isArray(retryResult.team) ? retryResult.team : [],
             messages: Array.isArray(retryResult.messages) ? retryResult.messages : [],
+            tasks: Array.isArray(retryResult.tasks) ? retryResult.tasks : void 0,
             suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions : void 0
           });
         } catch {
@@ -1185,7 +1201,9 @@ async function sendHeartbeat(payload) {
         error: retryResult.error,
         team: Array.isArray(retryResult.team) ? retryResult.team : void 0,
         messages: Array.isArray(retryResult.messages) ? retryResult.messages : void 0,
-        suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions : void 0
+        tasks: Array.isArray(retryResult.tasks) ? retryResult.tasks : void 0,
+        suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions : void 0,
+        notifications: Array.isArray(retryResult.notifications) ? retryResult.notifications : void 0
       };
     }
     return { ok: false, error: `HTTP ${response.status}` };
@@ -1208,17 +1226,24 @@ async function sendHeartbeat(payload) {
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         team: Array.isArray(result.team) ? result.team : [],
         messages: Array.isArray(result.messages) ? result.messages : [],
+        tasks: Array.isArray(result.tasks) ? result.tasks : void 0,
         suggestions: Array.isArray(result.suggestions) ? result.suggestions : void 0
       });
     } catch {
     }
+  }
+  if (config.refreshToken && isTokenExpiringSoon(config.accessToken)) {
+    refreshAccessToken().catch(() => {
+    });
   }
   return {
     ok: result.ok,
     error: result.error,
     team: Array.isArray(result.team) ? result.team : void 0,
     messages: Array.isArray(result.messages) ? result.messages : void 0,
-    suggestions: Array.isArray(result.suggestions) ? result.suggestions : void 0
+    tasks: Array.isArray(result.tasks) ? result.tasks : void 0,
+    suggestions: Array.isArray(result.suggestions) ? result.suggestions : void 0,
+    notifications: Array.isArray(result.notifications) ? result.notifications : void 0
   };
 }
 function fireHeartbeat(overrides = {}) {
@@ -1352,14 +1377,23 @@ var QUERY_TIMEOUT_MS = 8e3;
 var INSERT_TIMEOUT_MS = 5e3;
 var MAX_RESPONSE_BYTES = 512e3;
 var MAX_PAYLOAD_BYTES2 = 64e3;
-function getSupabaseConfig() {
+async function getSupabaseConfig() {
   let config;
   try {
     config = readCloudConfig();
   } catch {
     return null;
   }
-  if (!config.supabaseUrl || !config.supabaseAnonKey || !config.accessToken || !config.userId || !config.projectId) {
+  if (!config.supabaseUrl || !config.supabaseAnonKey || !config.userId || !config.projectId) {
+    return null;
+  }
+  if (!config.accessToken && config.refreshToken) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      config = readCloudConfig();
+    }
+  }
+  if (!config.accessToken) {
     return null;
   }
   return {
@@ -1371,7 +1405,7 @@ function getSupabaseConfig() {
   };
 }
 async function supabaseQuery(table, params, options = {}) {
-  const cfg = getSupabaseConfig();
+  const cfg = await getSupabaseConfig();
   if (!cfg) {
     return { success: false, error: "Cloud not configured." };
   }
@@ -1390,6 +1424,27 @@ async function supabaseQuery(table, params, options = {}) {
     });
   } catch {
     return { success: false, error: "Request failed." };
+  }
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const freshConfig = readCloudConfig();
+      if (freshConfig.accessToken) {
+        try {
+          response = await fetch(url, {
+            method: "GET",
+            headers: {
+              "apikey": cfg.supabaseAnonKey,
+              "Authorization": `Bearer ${freshConfig.accessToken}`,
+              "Accept": "application/json"
+            },
+            signal: AbortSignal.timeout(timeout)
+          });
+        } catch {
+          return { success: false, error: "Request failed after token refresh." };
+        }
+      }
+    }
   }
   if (!response.ok) {
     return { success: false, error: `HTTP ${response.status}` };
@@ -1418,7 +1473,7 @@ async function supabaseQuery(table, params, options = {}) {
   return { success: true, data: body };
 }
 async function supabaseInsert(table, payload) {
-  const cfg = getSupabaseConfig();
+  const cfg = await getSupabaseConfig();
   if (!cfg) {
     return { success: false, error: "Cloud not configured." };
   }
@@ -1443,14 +1498,36 @@ async function supabaseInsert(table, payload) {
   } catch {
     return { success: false, error: "Request failed." };
   }
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const freshConfig = readCloudConfig();
+      if (freshConfig.accessToken) {
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "apikey": cfg.supabaseAnonKey,
+              "Authorization": `Bearer ${freshConfig.accessToken}`,
+              "Content-Type": "application/json",
+              "Prefer": "return=minimal"
+            },
+            body,
+            signal: AbortSignal.timeout(INSERT_TIMEOUT_MS)
+          });
+        } catch {
+          return { success: false, error: "Request failed after token refresh." };
+        }
+      }
+    }
+  }
   if (!response.ok) {
     return { success: false, error: `HTTP ${response.status}` };
   }
   return { success: true, data: void 0 };
 }
 function fireCloudActivity(activity) {
-  try {
-    const cfg = getSupabaseConfig();
+  getSupabaseConfig().then((cfg) => {
     if (!cfg) return;
     const payload = {
       project_id: cfg.projectId,
@@ -1458,10 +1535,9 @@ function fireCloudActivity(activity) {
       type: activity.type,
       message: activity.message
     };
-    supabaseInsert("activity", payload).catch(() => {
-    });
-  } catch {
-  }
+    return supabaseInsert("activity", payload);
+  }).catch(() => {
+  });
 }
 
 // src/team/commands/msg.ts
@@ -1605,7 +1681,7 @@ function register(program) {
 }
 
 // src/cloud/register.ts
-import { Command as Command22 } from "commander";
+import { Command as Command27 } from "commander";
 
 // src/cloud/commands/login.ts
 import { Command as Command10 } from "commander";
@@ -2189,7 +2265,7 @@ var statusCommand2 = new Command13("status").description("Show cloud connection 
   }
   if (opts.ping) {
     console.log("");
-    if (!config.accessToken || !config.userId || !config.projectId) {
+    if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
       error("Cannot ping: not fully configured (need login + link).");
       return;
     }
@@ -2265,8 +2341,8 @@ var teamCommand = new Command14("team").description("Show who is online in your 
     error('Cloud config is corrupted. Re-run "vf cloud login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
-    error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
   if (!isValidUUID(config.projectId)) {
@@ -2333,6 +2409,19 @@ var teamCommand = new Command14("team").description("Show who is online in your 
 // src/cloud/commands/pull.ts
 import { Command as Command15 } from "commander";
 import chalk9 from "chalk";
+async function apiFetch(baseUrl, path8, token) {
+  try {
+    const res = await fetch(`${baseUrl}${path8}`, {
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(8e3)
+    });
+    if (!res.ok) return { success: false };
+    const data = await res.json();
+    return { success: true, data };
+  } catch {
+    return { success: false };
+  }
+}
 var g3 = chalk9.green;
 var gB3 = chalk9.greenBright;
 var gD2 = chalk9.dim.green;
@@ -2408,8 +2497,8 @@ var pullCommand = new Command15("pull").description("Show full project dashboard
     error('Cloud config is corrupted. Re-run "vf cloud login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
-    error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
   if (!isValidUUID(config.projectId)) {
@@ -2417,7 +2506,9 @@ var pullCommand = new Command15("pull").description("Show full project dashboard
     return;
   }
   const pid = config.projectId;
-  const [membersResult, presenceResult, activityResult, sessionsResult] = await Promise.all([
+  const token = config.apiKey ?? config.accessToken ?? "";
+  const baseUrl = config.apiUrl;
+  const [membersResult, presenceResult, activityResult, sessionsResult, tasksApiResult, msApiResult] = await Promise.all([
     supabaseQuery(
       "members",
       `project_id=eq.${pid}&select=user_id,role,joined_at,profiles(username,display_name,availability,score,streak_days)&order=joined_at.asc`
@@ -2433,14 +2524,20 @@ var pullCommand = new Command15("pull").description("Show full project dashboard
     supabaseQuery(
       "sessions",
       `project_id=eq.${pid}&select=id,started_by,started_at,ended_at,participants&order=started_at.desc&limit=5`
-    )
+    ),
+    apiFetch(baseUrl, `/api/projects/${pid}/tasks`, token),
+    apiFetch(baseUrl, `/api/projects/${pid}/milestones`, token)
   ]);
+  const tasksResult = tasksApiResult.success ? { success: true, data: tasksApiResult.data } : { success: false, data: [] };
+  const milestonesResult = msApiResult.success ? { success: true, data: Array.isArray(msApiResult.data) ? msApiResult.data : msApiResult.data.milestones ?? [] } : { success: false, data: [] };
   if (opts.json) {
     console.log(JSON.stringify({
       members: membersResult.success ? membersResult.data : [],
       presence: presenceResult.success ? presenceResult.data : [],
       activity: activityResult.success ? activityResult.data : [],
-      sessions: sessionsResult.success ? sessionsResult.data : []
+      sessions: sessionsResult.success ? sessionsResult.data : [],
+      tasks: tasksResult.success ? tasksResult.data : [],
+      milestones: milestonesResult.success ? milestonesResult.data : []
     }, null, 2));
     return;
   }
@@ -2504,6 +2601,62 @@ var pullCommand = new Command15("pull").description("Show full project dashboard
   } else {
     lines.push(boxRow2(d3("   No presence data."), W));
   }
+  lines.push(sectionHeader2("TASKS", W));
+  lines.push(boxEmpty2(W));
+  if (tasksResult.success && tasksResult.data.length > 0) {
+    const allTasks = tasksResult.data;
+    const milestones = milestonesResult.success ? milestonesResult.data : [];
+    const msMap = /* @__PURE__ */ new Map();
+    for (const ms of milestones) msMap.set(ms.id, ms);
+    const byMilestone = /* @__PURE__ */ new Map();
+    for (const t of allTasks) {
+      const key = t.milestone_id;
+      if (!byMilestone.has(key)) byMilestone.set(key, []);
+      byMilestone.get(key).push(t);
+    }
+    const msKeys = [...byMilestone.keys()].sort((a, b3) => {
+      if (a === null) return 1;
+      if (b3 === null) return -1;
+      return 0;
+    });
+    for (const msId of msKeys) {
+      const groupTasks = byMilestone.get(msId);
+      const doneCount = groupTasks.filter((t) => t.status === "done").length;
+      const total = groupTasks.length;
+      const pct = total > 0 ? Math.round(doneCount / total * 100) : 0;
+      const msTitle = msId ? msMap.get(msId)?.title ?? msId.slice(0, 8) : "Backlog";
+      const msIcon = msId ? y3("\u25C9") : d3("\u2261");
+      const progressWidth = 16;
+      const filled = total > 0 ? Math.round(doneCount / total * progressWidth) : 0;
+      const bar = y3("\u2588".repeat(filled)) + d3("\u2591".repeat(progressWidth - filled));
+      const statsStr = d3(`${doneCount}/${total}`) + " " + (pct > 0 ? y3(`${pct}%`) : d3("0%"));
+      lines.push(boxRow2(
+        "   " + msIcon + " " + b2(msTitle.padEnd(24)) + bar + " " + statsStr,
+        W
+      ));
+      const openTasks = groupTasks.filter((t) => t.status !== "done");
+      for (const t of openTasks) {
+        const icon = t.status === "in_progress" ? c2("\u25D0") : chalk9.white("\u25CB");
+        const title = t.title.length > 36 ? t.title.slice(0, 33) + "..." : t.title;
+        const owner = t.assigned_to === config.userId ? d3("@you") : t.assigned_to ? d3(t.assigned_to.slice(0, 8)) : d3("");
+        lines.push(boxRow2(
+          "      " + icon + " " + title.padEnd(38) + owner,
+          W
+        ));
+      }
+      lines.push(boxEmpty2(W));
+    }
+    const totalAll = allTasks.length;
+    const totalDone = allTasks.filter((t) => t.status === "done").length;
+    const totalActive = allTasks.filter((t) => t.status === "in_progress").length;
+    const parts = [];
+    parts.push(`${totalDone}/${totalAll} done`);
+    if (totalActive > 0) parts.push(c2(`${totalActive} active`));
+    if (milestones.length > 0) parts.push(`${milestones.length} milestone${milestones.length > 1 ? "s" : ""}`);
+    lines.push(boxRow2(d3("   " + parts.join(" \xB7 ")), W));
+  } else {
+    lines.push(boxRow2(d3("   No tasks."), W));
+  }
   lines.push(sectionHeader2("RECENT ACTIVITY", W));
   lines.push(boxEmpty2(W));
   if (activityResult.success && activityResult.data.length > 0) {
@@ -2551,8 +2704,8 @@ var pushCommand = new Command16("push").description("Post a message to your vibe
     error('Cloud config is corrupted. Re-run "vf cloud login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
-    error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
   if (!isValidUUID(config.projectId) || !isValidUUID(config.userId)) {
@@ -2564,7 +2717,7 @@ var pushCommand = new Command16("push").description("Post a message to your vibe
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.accessToken}`
+        "Authorization": `Bearer ${config.apiKey ?? config.accessToken}`
       },
       body: JSON.stringify({
         project_id: config.projectId,
@@ -2590,7 +2743,7 @@ var pushCommand = new Command16("push").description("Post a message to your vibe
 
 // src/cloud/commands/msg.ts
 import { Command as Command17 } from "commander";
-var msgCommand2 = new Command17("msg").description("Send a message to your project team chat").argument("<message>", "Message to send").action(async (message) => {
+var msgCommand2 = new Command17("msg").description("Send a message to your project team chat").argument("<message>", "Message to send").option("--to <usernames...>", "Mention users (auto-adds @ prefix)").option("--reply <message-id>", "Reply to a message").action(async (message, opts) => {
   let config;
   try {
     config = readCloudConfig();
@@ -2598,7 +2751,7 @@ var msgCommand2 = new Command17("msg").description("Send a message to your proje
     error('Cloud config is corrupted. Re-run "vf vibeteamz login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
     error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
@@ -2606,17 +2759,24 @@ var msgCommand2 = new Command17("msg").description("Send a message to your proje
     error("Invalid IDs in cloud config.");
     return;
   }
+  let finalMessage = message;
+  if (opts.to?.length) {
+    const mentionPrefix = opts.to.map((u) => `@${u.replace(/^@/, "")}`).join(" ");
+    finalMessage = `${mentionPrefix} ${message}`;
+  }
   try {
+    const token = config.apiKey ?? config.accessToken;
     const res = await fetch(`${config.apiUrl}/api/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.accessToken}`
+        "Authorization": `Bearer ${token}`
       },
       body: JSON.stringify({
         project_id: config.projectId,
         user_id: config.userId,
-        body: message
+        body: finalMessage,
+        reply_to: opts.reply || null
       }),
       signal: AbortSignal.timeout(1e4)
     });
@@ -2645,7 +2805,7 @@ var milestoneCommand = new Command18("milestone").description("Create a mileston
     error('Cloud config is corrupted. Re-run "vf vibeteamz login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
     error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
@@ -2658,7 +2818,7 @@ var milestoneCommand = new Command18("milestone").description("Create a mileston
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.accessToken}`
+        "Authorization": `Bearer ${config.apiKey ?? config.accessToken}`
       },
       body: JSON.stringify({
         title,
@@ -2755,7 +2915,7 @@ var noteCommand = new Command20("note").description("Post a note to project acti
     error('Cloud config is corrupted. Re-run "vf vibeteamz login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
     error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
@@ -2768,7 +2928,7 @@ var noteCommand = new Command20("note").description("Post a note to project acti
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.accessToken}`
+        "Authorization": `Bearer ${config.apiKey ?? config.accessToken}`
       },
       body: JSON.stringify({
         project_id: config.projectId,
@@ -2825,7 +2985,7 @@ function statusLabel(status) {
 function getAuthToken(config) {
   return config.apiKey ?? config.accessToken;
 }
-async function apiFetch(config, path8, opts) {
+async function apiFetch2(config, path8, opts) {
   const token = getAuthToken(config);
   return fetch(`${config.apiUrl}${path8}`, {
     ...opts,
@@ -2856,8 +3016,8 @@ var tasksCommand = new Command21("tasks").description("List project tasks").opti
   }
   try {
     const [tasksRes, msRes] = await Promise.all([
-      apiFetch(config, `/api/projects/${config.projectId}/tasks`),
-      apiFetch(config, `/api/projects/${config.projectId}/milestones`)
+      apiFetch2(config, `/api/projects/${config.projectId}/tasks`),
+      apiFetch2(config, `/api/projects/${config.projectId}/milestones`)
     ]);
     if (!tasksRes.ok) {
       const data = await tasksRes.json().catch(() => ({}));
@@ -2934,12 +3094,29 @@ var tasksCommand = new Command21("tasks").description("List project tasks").opti
 async function resolveTaskId(config, shortId) {
   if (shortId.length >= 36) return shortId;
   try {
-    const res = await apiFetch(config, `/api/projects/${config.projectId}/tasks`);
+    const res = await apiFetch2(config, `/api/projects/${config.projectId}/tasks`);
     if (!res.ok) return null;
     const tasks = await res.json();
     const match = tasks.find((t) => t.id.startsWith(shortId));
     if (!match) {
       error(`No task found starting with "${shortId}". Run "vf vibeteamz tasks" to see IDs.`);
+      return null;
+    }
+    return match.id;
+  } catch {
+    return null;
+  }
+}
+async function resolveMilestoneId(config, shortId) {
+  if (shortId.length >= 36) return shortId;
+  try {
+    const res = await apiFetch2(config, `/api/projects/${config.projectId}/milestones`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    const milestones = Array.isArray(body) ? body : body.milestones ?? [];
+    const match = milestones.find((m) => m.id.startsWith(shortId));
+    if (!match) {
+      error(`No milestone found starting with "${shortId}". Run "vf vibeteamz milestones" to see IDs.`);
       return null;
     }
     return match.id;
@@ -2963,7 +3140,7 @@ taskCommand.command("claim <id>").description("Assign a task to yourself").actio
   const fullId = await resolveTaskId(config, taskId);
   if (!fullId) return;
   try {
-    const res = await apiFetch(config, `/api/tasks/${fullId}`, {
+    const res = await apiFetch2(config, `/api/tasks/${fullId}`, {
       method: "PATCH",
       body: JSON.stringify({ assigned_to: config.userId })
     });
@@ -2993,7 +3170,7 @@ taskCommand.command("start <id>").description("Start a task (set to in_progress 
   const fullId = await resolveTaskId(config, taskId);
   if (!fullId) return;
   try {
-    const res = await apiFetch(config, `/api/tasks/${fullId}`, {
+    const res = await apiFetch2(config, `/api/tasks/${fullId}`, {
       method: "PATCH",
       body: JSON.stringify({ status: "in_progress", assigned_to: config.userId })
     });
@@ -3023,7 +3200,7 @@ taskCommand.command("done <id>").description("Complete a task (set to done)").ac
   const fullId = await resolveTaskId(config, taskId);
   if (!fullId) return;
   try {
-    const res = await apiFetch(config, `/api/tasks/${fullId}`, {
+    const res = await apiFetch2(config, `/api/tasks/${fullId}`, {
       method: "PATCH",
       body: JSON.stringify({ status: "done" })
     });
@@ -3051,11 +3228,16 @@ taskCommand.command("create <title>").description("Create a new task").option("-
     return;
   }
   try {
-    const res = await apiFetch(config, `/api/projects/${config.projectId}/tasks`, {
+    let milestoneId = null;
+    if (opts.milestone) {
+      milestoneId = await resolveMilestoneId(config, opts.milestone);
+      if (!milestoneId) return;
+    }
+    const res = await apiFetch2(config, `/api/projects/${config.projectId}/tasks`, {
       method: "POST",
       body: JSON.stringify({
         title,
-        milestone_id: opts.milestone || null,
+        milestone_id: milestoneId,
         assigned_to: opts.assign || null
       })
     });
@@ -3070,10 +3252,674 @@ taskCommand.command("create <title>").description("Create a new task").option("-
     error("Failed to connect to vibeteamz.");
   }
 });
+taskCommand.command("detail <id>").description("View full task details including description").action(async (taskId) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error("Cloud not configured.");
+    return;
+  }
+  const fullId = await resolveTaskId(config, taskId);
+  if (!fullId) return;
+  try {
+    const [tasksRes, msRes] = await Promise.all([
+      apiFetch2(config, `/api/projects/${config.projectId}/tasks`),
+      apiFetch2(config, `/api/projects/${config.projectId}/milestones`)
+    ]);
+    if (!tasksRes.ok) {
+      error("Failed to fetch task details.");
+      return;
+    }
+    const tasks = await tasksRes.json();
+    const task = tasks.find((t) => t.id === fullId);
+    if (!task) {
+      error(`Task ${taskId} not found.`);
+      return;
+    }
+    let milestoneName = null;
+    if (task.milestone_id && msRes.ok) {
+      const msBody = await msRes.json();
+      const milestones = Array.isArray(msBody) ? msBody : msBody.milestones ?? [];
+      const ms = milestones.find((m) => m.id === task.milestone_id);
+      milestoneName = ms?.title ?? null;
+    }
+    console.log("");
+    console.log(`  ${statusIcon(task.status)} ${chalk11.bold(task.title)}`);
+    console.log("");
+    const rows = [];
+    rows.push(["Status", statusLabel(task.status)]);
+    rows.push(["Priority", task.priority === "normal" ? d4("normal") : chalk11.bold(task.priority)]);
+    if (task.assignee) {
+      rows.push(["Assigned to", `@${task.assignee.username}${task.assignee.display_name ? ` (${task.assignee.display_name})` : ""}`]);
+    } else {
+      rows.push(["Assigned to", d4("unassigned")]);
+    }
+    if (milestoneName) {
+      rows.push(["Milestone", milestoneName]);
+    }
+    if (task.due_date) {
+      const overdue = new Date(task.due_date) < /* @__PURE__ */ new Date() && task.status !== "done";
+      rows.push(["Due", overdue ? chalk11.red(task.due_date) : task.due_date]);
+    }
+    rows.push(["ID", d4(task.id)]);
+    for (const [label, value] of rows) {
+      console.log(`  ${d4(label.padEnd(14))}${value}`);
+    }
+    if (task.description) {
+      console.log("");
+      console.log(d4("  Description"));
+      for (const line of task.description.split("\n")) {
+        console.log(`  ${line}`);
+      }
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out.");
+    } else {
+      error("Failed to connect to vibeteamz.");
+    }
+  }
+});
+
+// src/cloud/commands/notifications.ts
+import { Command as Command22 } from "commander";
+import chalk12 from "chalk";
+var d5 = chalk12.dim;
+function typeIcon(type) {
+  switch (type) {
+    case "mention":
+      return chalk12.cyan("@");
+    case "task_assigned":
+      return chalk12.yellow("\u2192");
+    case "task_completed":
+      return chalk12.green("\u2713");
+    case "member_joined":
+      return chalk12.green("+");
+    case "milestone_completed":
+      return chalk12.magenta("\u2605");
+    default:
+      return d5("\xB7");
+  }
+}
+function timeAgo(ts) {
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 6e4);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+function getAuthToken2(config) {
+  return config.apiKey ?? config.accessToken;
+}
+var notificationsCommand = new Command22("notifications").description("List your notifications").option("--all", "Include read notifications").action(async (opts) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    error(`Cloud config error: ${msg}`);
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
+    return;
+  }
+  if (!isValidUUID(config.projectId)) {
+    error("Invalid project ID in cloud config.");
+    return;
+  }
+  try {
+    const token = getAuthToken2(config);
+    const res = await fetch(`${config.apiUrl}/api/notifications?project_id=${config.projectId}`, {
+      headers: {
+        "Authorization": `Bearer ${token}`
+      },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch notifications: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const { notifications, unread_count } = await res.json();
+    console.log("");
+    if (notifications.length === 0) {
+      console.log(d5("  No notifications."));
+      console.log("");
+      return;
+    }
+    const filtered = opts.all ? notifications : notifications.filter((n) => !n.read_at);
+    if (filtered.length === 0) {
+      console.log(d5("  No unread notifications."));
+      if (!opts.all) info("Use --all to see read notifications.");
+      console.log("");
+      return;
+    }
+    for (const n of filtered) {
+      const icon = typeIcon(n.type);
+      const actor = n.actor?.display_name || n.actor?.username || "someone";
+      const unread = !n.read_at ? chalk12.yellowBright(" \u25CF") : "";
+      const age = d5(timeAgo(n.created_at));
+      console.log(`  ${icon}${unread} ${chalk12.bold(actor)} ${n.title}  ${age}`);
+      if (n.body) {
+        console.log(`    ${d5(n.body.slice(0, 80))}`);
+      }
+    }
+    console.log("");
+    if (unread_count > 0) {
+      console.log(`  ${chalk12.yellowBright(unread_count)} unread`);
+    } else {
+      console.log(`  ${d5("All caught up")}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      error(`Failed to connect to vibeteamz: ${msg}`);
+    }
+  }
+});
+var readAllCommand = new Command22("read-all").description("Mark all notifications as read").action(async () => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error("Cloud not configured.");
+    return;
+  }
+  try {
+    const token = getAuthToken2(config);
+    const res = await fetch(`${config.apiUrl}/api/notifications/read-all`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({ project_id: config.projectId }),
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (res.ok) {
+      success("All notifications marked as read.");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed: ${data.error ?? `HTTP ${res.status}`}`);
+    }
+  } catch {
+    error("Failed to connect to vibeteamz.");
+  }
+});
+notificationsCommand.addCommand(readAllCommand);
+
+// src/cloud/commands/activity.ts
+import { Command as Command23 } from "commander";
+import chalk13 from "chalk";
+var d6 = chalk13.dim;
+function typeIcon2(type) {
+  switch (type) {
+    case "task_started":
+      return chalk13.cyan("\u25B6");
+    case "task_completed":
+      return chalk13.green("\u2713");
+    case "member_joined":
+      return chalk13.green("+");
+    case "member_left":
+      return chalk13.red("-");
+    case "session_started":
+      return chalk13.magenta("\u25CF");
+    case "commit":
+      return chalk13.yellow("\u2022");
+    case "note":
+      return chalk13.blue("\u2022");
+    case "review":
+      return chalk13.cyan("\u2022");
+    default:
+      return d6("\xB7");
+  }
+}
+function timeAgo2(ts) {
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 6e4);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+function getAuthToken3(config) {
+  return config.apiKey ?? config.accessToken;
+}
+var activityCommand = new Command23("activity").description("View project activity feed").option("--limit <n>", "Number of entries to show", "20").action(async (opts) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    error(`Cloud config error: ${msg}`);
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
+    return;
+  }
+  if (!isValidUUID(config.projectId)) {
+    error("Invalid project ID in cloud config.");
+    return;
+  }
+  const limit = Math.min(parseInt(opts.limit || "20", 10) || 20, 50);
+  try {
+    const token = getAuthToken3(config);
+    const res = await fetch(`${config.apiUrl}/api/projects/${config.projectId}/activity?limit=${limit}`, {
+      headers: { "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch activity: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const activities = await res.json();
+    console.log("");
+    if (activities.length === 0) {
+      console.log(d6("  No activity yet."));
+      console.log("");
+      return;
+    }
+    console.log(chalk13.bold("  Activity Feed"));
+    console.log("");
+    for (const a of activities) {
+      const icon = typeIcon2(a.type);
+      const who = a.profiles?.username ?? "system";
+      const age = d6(timeAgo2(a.created_at));
+      console.log(`  ${icon} ${chalk13.bold(who)} ${a.message}  ${age}`);
+    }
+    console.log("");
+    console.log(d6(`  ${activities.length} entries shown`));
+    if (activities.length >= limit) {
+      info(`Use --limit <n> to see more (max 50).`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      error(`Failed to connect to vibeteamz: ${msg}`);
+    }
+  }
+});
+
+// src/cloud/commands/members.ts
+import { Command as Command24 } from "commander";
+import chalk14 from "chalk";
+var d7 = chalk14.dim;
+function roleColor(role) {
+  switch (role) {
+    case "owner":
+      return chalk14.yellow;
+    case "admin":
+      return chalk14.cyan;
+    case "member":
+      return chalk14.white;
+    case "viewer":
+      return chalk14.dim;
+    case "pending":
+      return chalk14.dim;
+    default:
+      return chalk14.white;
+  }
+}
+function availIcon(avail) {
+  switch (avail) {
+    case "available":
+      return chalk14.green("\u25CF");
+    case "busy":
+      return chalk14.red("\u25CF");
+    case "looking":
+      return chalk14.yellow("\u25CF");
+    default:
+      return d7("\u25CB");
+  }
+}
+function getAuthToken4(config) {
+  return config.apiKey ?? config.accessToken;
+}
+var membersCommand = new Command24("members").description("List project members").action(async () => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    error(`Cloud config error: ${msg}`);
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
+    return;
+  }
+  if (!isValidUUID(config.projectId)) {
+    error("Invalid project ID in cloud config.");
+    return;
+  }
+  try {
+    const token = getAuthToken4(config);
+    const res = await fetch(`${config.apiUrl}/api/projects/${config.projectId}/members`, {
+      headers: { "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch members: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const members = await res.json();
+    console.log("");
+    if (members.length === 0) {
+      console.log(d7("  No members found."));
+      console.log("");
+      return;
+    }
+    const active = members.filter((m) => m.role !== "pending");
+    const pending = members.filter((m) => m.role === "pending");
+    console.log(chalk14.bold("  Team Members") + d7(` (${active.length})`));
+    console.log("");
+    for (const m of active) {
+      const name = m.profiles?.display_name || m.profiles?.username || m.user_id.slice(0, 8);
+      const username = m.profiles?.username ?? m.user_id.slice(0, 8);
+      const avail = availIcon(m.profiles?.availability ?? null);
+      const role = roleColor(m.role)(m.role.padEnd(8));
+      const isYou = m.user_id === config.userId ? chalk14.dim(" (you)") : "";
+      const nameStr = name === username ? username : `${name} ${d7(`@${username}`)}`;
+      console.log(`  ${avail} ${nameStr.padEnd(28)}${role}${isYou}`);
+    }
+    if (pending.length > 0) {
+      console.log("");
+      console.log(chalk14.yellow("  Pending Requests") + d7(` (${pending.length})`));
+      for (const m of pending) {
+        const name = m.profiles?.display_name || m.profiles?.username || m.user_id.slice(0, 8);
+        console.log(`  ${d7("\u25CB")} ${d7(name)}`);
+      }
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      error(`Failed to connect to vibeteamz: ${msg}`);
+    }
+  }
+});
+
+// src/cloud/commands/project-info.ts
+import { Command as Command25 } from "commander";
+import chalk15 from "chalk";
+var d8 = chalk15.dim;
+function statusColor(status) {
+  switch (status) {
+    case "recruiting":
+      return chalk15.green;
+    case "active":
+      return chalk15.yellow;
+    case "completed":
+      return chalk15.dim;
+    default:
+      return chalk15.white;
+  }
+}
+function getAuthToken5(config) {
+  return config.apiKey ?? config.accessToken;
+}
+var projectInfoCommand = new Command25("project").description("View linked project details").action(async () => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    error(`Cloud config error: ${msg}`);
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
+    return;
+  }
+  if (!isValidUUID(config.projectId)) {
+    error("Invalid project ID in cloud config.");
+    return;
+  }
+  try {
+    const token = getAuthToken5(config);
+    const res = await fetch(`${config.apiUrl}/api/projects/${config.projectId}`, {
+      headers: { "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch project: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const project = await res.json();
+    console.log("");
+    console.log(chalk15.bold(`  ${project.name}`) + "  " + statusColor(project.status)(project.status));
+    if (project.owner) {
+      const ownerName = project.owner.display_name || project.owner.username;
+      console.log(d8(`  by @${project.owner.username}${ownerName !== project.owner.username ? ` (${ownerName})` : ""}`));
+    }
+    console.log("");
+    if (project.tagline) {
+      console.log(`  ${project.tagline}`);
+      console.log("");
+    }
+    if (project.description) {
+      const desc = project.description.length > 200 ? project.description.slice(0, 197) + "..." : project.description;
+      console.log(d8(`  ${desc}`));
+      console.log("");
+    }
+    const rows = [];
+    rows.push(["Category", project.category]);
+    rows.push(["Max Members", String(project.max_members)]);
+    if (project.repo_url) rows.push(["Repo", project.repo_url]);
+    rows.push(["ID", d8(project.id)]);
+    for (const [label, value] of rows) {
+      console.log(`  ${d8(label.padEnd(14))}${value}`);
+    }
+    if (project.tech_stack.length > 0) {
+      console.log("");
+      console.log(`  ${d8("Tech Stack")}    ${project.tech_stack.map((t) => chalk15.cyan(t)).join(d8(", "))}`);
+    }
+    if (project.roles_needed.length > 0) {
+      console.log(`  ${d8("Looking for")}   ${project.roles_needed.map((r4) => chalk15.yellow(r4)).join(d8(", "))}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      error(`Failed to connect to vibeteamz: ${msg}`);
+    }
+  }
+});
+
+// src/cloud/commands/org.ts
+import { Command as Command26 } from "commander";
+import chalk16 from "chalk";
+var d9 = chalk16.dim;
+function roleColor2(role) {
+  switch (role) {
+    case "owner":
+      return chalk16.yellow;
+    case "admin":
+      return chalk16.cyan;
+    case "member":
+      return chalk16.white;
+    default:
+      return chalk16.white;
+  }
+}
+function getAuthToken6(config) {
+  return config.apiKey ?? config.accessToken;
+}
+async function apiFetch3(config, path8, opts) {
+  const token = getAuthToken6(config);
+  return fetch(`${config.apiUrl}${path8}`, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+      ...opts?.headers ?? {}
+    },
+    signal: AbortSignal.timeout(1e4)
+  });
+}
+var orgCommand = new Command26("org").description("Organization management commands");
+orgCommand.command("list").description("List your organizations").action(async () => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId) {
+    error('Cloud not configured. Run "vf vibeteamz login".');
+    return;
+  }
+  try {
+    const res = await apiFetch3(config, "/api/orgs");
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch orgs: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const orgs = await res.json();
+    console.log("");
+    if (orgs.length === 0) {
+      console.log(d9("  No organizations found."));
+      console.log("");
+      return;
+    }
+    console.log(chalk16.bold("  Organizations") + d9(` (${orgs.length})`));
+    console.log("");
+    for (const org of orgs) {
+      const owner = org.owner?.username ? d9(` @${org.owner.username}`) : "";
+      console.log(`  ${chalk16.bold(org.name)}${owner}`);
+      if (org.description) {
+        console.log(`    ${d9(org.description.slice(0, 60))}`);
+      }
+      console.log(`    ${d9(org.id.slice(0, 8))}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      error("Failed to connect to vibeteamz.");
+    }
+  }
+});
+orgCommand.command("members <org-id>").description("List members of an organization").action(async (orgId) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId) {
+    error('Cloud not configured. Run "vf vibeteamz login".');
+    return;
+  }
+  try {
+    const res = await apiFetch3(config, `/api/orgs/${orgId}/members`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch members: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const members = await res.json();
+    console.log("");
+    if (members.length === 0) {
+      console.log(d9("  No members found."));
+      console.log("");
+      return;
+    }
+    console.log(chalk16.bold("  Org Members") + d9(` (${members.length})`));
+    console.log("");
+    for (const m of members) {
+      const name = m.profile?.display_name || m.profile?.username || m.user_id.slice(0, 8);
+      const username = m.profile?.username ?? m.user_id.slice(0, 8);
+      const role = roleColor2(m.role)(m.role.padEnd(8));
+      const isYou = m.user_id === config.userId ? chalk16.dim(" (you)") : "";
+      console.log(`  ${name.padEnd(24)}${role}  ${d9(`@${username}`)}${isYou}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      error("Failed to connect to vibeteamz.");
+    }
+  }
+});
+orgCommand.command("projects <org-id>").description("List projects in an organization").action(async (orgId) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId) {
+    error('Cloud not configured. Run "vf vibeteamz login".');
+    return;
+  }
+  try {
+    const res = await apiFetch3(config, `/api/orgs/${orgId}/projects`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch projects: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const projects = await res.json();
+    console.log("");
+    if (projects.length === 0) {
+      console.log(d9("  No projects in this org."));
+      console.log("");
+      return;
+    }
+    console.log(chalk16.bold("  Org Projects") + d9(` (${projects.length})`));
+    console.log("");
+    for (const p of projects) {
+      const statusFn = p.status === "recruiting" ? chalk16.green : p.status === "active" ? chalk16.yellow : chalk16.dim;
+      console.log(`  ${chalk16.bold(p.name.padEnd(28))}${statusFn(p.status.padEnd(12))}${d9(p.id.slice(0, 8))}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      error("Failed to connect to vibeteamz.");
+    }
+  }
+});
 
 // src/cloud/register.ts
 function registerCloud(program) {
-  const primaryCmd = new Command22("vibeteamz").description("vibeteamz cloud integration commands");
+  const primaryCmd = new Command27("vibeteamz").description("vibeteamz cloud integration commands");
   primaryCmd.addCommand(loginCommand);
   primaryCmd.addCommand(linkCommand);
   primaryCmd.addCommand(unlinkCommand);
@@ -3087,14 +3933,36 @@ function registerCloud(program) {
   primaryCmd.addCommand(noteCommand);
   primaryCmd.addCommand(tasksCommand);
   primaryCmd.addCommand(taskCommand);
+  primaryCmd.addCommand(notificationsCommand);
+  primaryCmd.addCommand(activityCommand);
+  primaryCmd.addCommand(membersCommand);
+  primaryCmd.addCommand(projectInfoCommand);
+  primaryCmd.addCommand(orgCommand);
   program.addCommand(primaryCmd);
-  const aliasCmd = new Command22("cloud").description("Alias for vibeteamz (deprecated)");
+  const vtCmd = new Command27("vt").description("Short alias for vibeteamz");
+  vtCmd.allowUnknownOption(true);
+  vtCmd.allowExcessArguments(true);
+  vtCmd.action((_opts, cmd) => {
+    primaryCmd.parseAsync(["node", "vf-vt", ...cmd.args]);
+  });
+  program.addCommand(vtCmd);
+  const sayCmd = new Command27("say").description("Send a message to team chat (shortcut for vibeteamz msg)").argument("<message>", "Message to send").option("--to <usernames...>", "Mention users (auto-adds @ prefix)").option("--reply <message-id>", "Reply to a message").action(async (message, opts) => {
+    const args = ["node", "vf-say", message];
+    if (opts.to?.length) {
+      args.push("--to", ...opts.to);
+    }
+    if (opts.reply) {
+      args.push("--reply", opts.reply);
+    }
+    await msgCommand2.parseAsync(args);
+  });
+  program.addCommand(sayCmd);
+  const aliasCmd = new Command27("cloud").description("Alias for vibeteamz (deprecated)");
   aliasCmd.hidden = true;
   aliasCmd.allowUnknownOption(true);
   aliasCmd.allowExcessArguments(true);
   aliasCmd.action((_opts, cmd) => {
-    const args = cmd.args;
-    primaryCmd.parseAsync(["node", "vf-vibeteamz", ...args]);
+    primaryCmd.parseAsync(["node", "vf-cloud", ...cmd.args]);
   });
   program.addCommand(aliasCmd);
 }

@@ -413,7 +413,7 @@ interface HeartbeatPayload {
     progress_total: number;
     active_files: string[];
     focus_score: number;
-    status: 'active' | 'idle';
+    status: 'active' | 'idle' | 'offline';
 }
 /** Teammate presence returned in heartbeat response */
 interface HeartbeatTeammate {
@@ -447,13 +447,37 @@ interface HeartbeatSuggestion {
     task_title?: string;
     urgency: 'low' | 'medium' | 'high';
 }
+/** A notification from the vibeteamz server */
+interface HeartbeatNotification {
+    id: string;
+    type: 'mention' | 'task_assigned' | 'task_completed' | 'member_joined' | 'milestone_completed';
+    title: string;
+    body: string | null;
+    related_type: string | null;
+    created_at: string;
+    actor?: {
+        username: string;
+    };
+}
+/** A task assigned to the user, returned in heartbeat response */
+interface HeartbeatTask {
+    id: string;
+    title: string;
+    status: 'todo' | 'in_progress' | 'done';
+    milestone_id: string | null;
+    milestones?: {
+        title: string;
+    } | null;
+}
 /** Response from the heartbeat API (enriched with team state) */
 interface HeartbeatResult {
     ok: boolean;
     error?: string;
     team?: HeartbeatTeammate[];
     messages?: HeartbeatMessage[];
+    tasks?: HeartbeatTask[];
     suggestions?: HeartbeatSuggestion[];
+    notifications?: HeartbeatNotification[];
 }
 /** Result of a cloud operation */
 type CloudResult<T = void> = {

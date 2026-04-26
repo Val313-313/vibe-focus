@@ -14,9 +14,10 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/version-0.2.0-green" alt="version">
   <a href="https://github.com/Val313-313/vibe-focus/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Val313-313/vibe-focus" alt="license"></a>
   <a href="https://github.com/Val313-313/vibe-focus"><img src="https://img.shields.io/github/stars/Val313-313/vibe-focus" alt="stars"></a>
-  <img src="https://img.shields.io/badge/version-0.1.1-green" alt="version">
+  <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="node">
 </p>
 
 <p align="center">
@@ -45,22 +46,26 @@ your AI agent didn't stop you. it did exactly what you asked. every single time.
 
 ## what's new
 
-- **team collaboration** — `vibe-focus-team` shares focus state across your team. see who's working on what, sync tasks, and inject coworker context into guard hooks. solo focus, team awareness.
+- **team collaboration** — built-in `vf team` commands share focus state across your team. see who's working on what, sync tasks, and inject coworker context into guard hooks. solo focus, team awareness.
 - **focus history** — `vf history` shows a sparkline of your focus score over time. streaks, trends, weekly averages. all in the terminal.
 - **multi-tab workers** — `vf start t2 --worker api` runs parallel tasks in separate terminal tabs. each worker tracks independently.
-- **extension API** — `import { loadState } from 'vibe-focus'` — build plugins on top of the core. powers `vibe-focus-team`.
+- **extension API** — `import { loadState } from 'vibe-focus'` — build plugins on top of the core. powers team and vibeteamz cloud integrations.
+- **vibeteamz cloud** — `vf vibeteamz login` connects to the vibeteamz platform. live dashboards, team chat, task management, milestones, and activity feeds from your terminal.
 
 ## install
 
+> **Install once globally, then `vf init` in each project. No per-project reinstall needed.**
+
 ```bash
-npm install -g github:Val313-313/vibe-focus
+pnpm add -g github:Val313-313/vibe-focus
 ```
 
-no npm registry needed. installs directly from GitHub.
+no npm registry needed. installs directly from GitHub. after this, `vf` works in every project — just run `vf init` to set up each one.
 
 ## 30 seconds to focus
 
 ```bash
+# Initialize in any project
 cd your-project
 vf init
 vf scope --purpose "Build a REST API" --in "endpoints" "auth" --out "frontend" "deployment"
@@ -275,7 +280,7 @@ const scope = loadScope();            // project scope
 const active = state.tasks.find(t => t.status === 'active');
 ```
 
-powers the `vibe-focus-team` package for shared team workflows. publish your own extensions.
+powers the built-in team and vibeteamz cloud integrations. publish your own extensions via pnpm.
 
 ## all commands
 
@@ -322,14 +327,34 @@ powers the `vibe-focus-team` package for shared team workflows. publish your own
 | `vf history -n 30` | Last 30 days of history |
 | `vf history --json` | Export history as JSON |
 
+### team & cloud
+
+| Command | What it does |
+|---------|-------------|
+| `vf team init` | Initialize team mode for this project |
+| `vf team status` | Show team members and their focus state |
+| `vf team sync` | Sync team presence files via Git |
+| `vf team who <path>` | Check who is working on a file |
+| `vf team msg "text"` | Send or read team messages |
+| `vf msg "text"` | Send a message to other tabs/workers |
+| `vf say "text"` | Send a message to vibeteamz team chat |
+| `vf vibeteamz login` | Authenticate with vibeteamz cloud |
+| `vf vibeteamz link <id>` | Link project to vibeteamz |
+| `vf vibeteamz status` | Show cloud connection status |
+| `vf vibeteamz pull` | Show full project dashboard from cloud |
+| `vf vibeteamz tasks` | List project tasks from vibeteamz |
+
 ### advanced
 
 | Command | What it does |
 |---------|-------------|
 | `vf start <id> --worker <name>` | Start task in a named worker tab |
 | `vf done --worker <name>` | Complete task for a specific worker |
-| `vf-team who` | See who's working on what (team package) |
-| `vf-team sync` | Sync team focus state |
+| `vf watch` | Watch for changes, cross-tab sync, auto-heartbeats |
+| `vf hook --install` | Install git hooks for auto-tracking |
+| `vf setup` | One-command project setup wizard |
+| `vf join` | Join an existing project (team onboarding) |
+| `vf all` | Show all tasks: local + vibeteamz |
 | `import { loadState } from 'vibe-focus'` | Extension API — build plugins on top |
 
 ## focus score

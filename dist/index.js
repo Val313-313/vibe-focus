@@ -38,10 +38,10 @@ import {
   updateTask,
   warn,
   writeState
-} from "./chunk-V5W6M56L.js";
+} from "./chunk-56SVELN4.js";
 
 // src/index.ts
-import { Command as Command43 } from "commander";
+import { Command as Command49 } from "commander";
 
 // src/commands/init.ts
 import path from "path";
@@ -508,19 +508,20 @@ function writeCloudCache(cache) {
   fs2.writeFileSync(tmpPath, content, { mode: 384 });
   fs2.renameSync(tmpPath, filePath);
 }
-function readCloudCache() {
+function readCloudCache(maxAge = MAX_CACHE_AGE_MS) {
   const filePath = getCachePath();
   if (!fs2.existsSync(filePath)) return null;
   try {
     const raw = JSON.parse(fs2.readFileSync(filePath, "utf-8"));
     if (raw?.version !== 1 || !raw.updatedAt) return null;
     const ageMs = Date.now() - new Date(raw.updatedAt).getTime();
-    if (ageMs > MAX_CACHE_AGE_MS) return null;
+    if (ageMs > maxAge) return null;
     return {
       version: 1,
       updatedAt: raw.updatedAt,
       team: Array.isArray(raw.team) ? raw.team : [],
       messages: Array.isArray(raw.messages) ? raw.messages : [],
+      tasks: Array.isArray(raw.tasks) ? raw.tasks : void 0,
       suggestions: Array.isArray(raw.suggestions) ? raw.suggestions : void 0
     };
   } catch {
@@ -575,6 +576,20 @@ async function refreshAccessToken() {
 var MAX_FILES = 50;
 var HEARTBEAT_TIMEOUT_MS = 5e3;
 var MAX_PAYLOAD_BYTES = 64e3;
+var TOKEN_REFRESH_MARGIN_S = 600;
+function isTokenExpiringSoon(token, marginSeconds = TOKEN_REFRESH_MARGIN_S) {
+  if (!token) return true;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return true;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+    if (typeof payload.exp !== "number") return true;
+    const now2 = Math.floor(Date.now() / 1e3);
+    return payload.exp - now2 < marginSeconds;
+  } catch {
+    return true;
+  }
+}
 function buildHeartbeatPayload(overrides = {}) {
   let config;
   try {
@@ -667,6 +682,7 @@ async function sendHeartbeat(payload) {
             updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
             team: Array.isArray(retryResult.team) ? retryResult.team : [],
             messages: Array.isArray(retryResult.messages) ? retryResult.messages : [],
+            tasks: Array.isArray(retryResult.tasks) ? retryResult.tasks : void 0,
             suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions : void 0
           });
         } catch {
@@ -677,7 +693,9 @@ async function sendHeartbeat(payload) {
         error: retryResult.error,
         team: Array.isArray(retryResult.team) ? retryResult.team : void 0,
         messages: Array.isArray(retryResult.messages) ? retryResult.messages : void 0,
-        suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions : void 0
+        tasks: Array.isArray(retryResult.tasks) ? retryResult.tasks : void 0,
+        suggestions: Array.isArray(retryResult.suggestions) ? retryResult.suggestions : void 0,
+        notifications: Array.isArray(retryResult.notifications) ? retryResult.notifications : void 0
       };
     }
     return { ok: false, error: `HTTP ${response.status}` };
@@ -700,17 +718,24 @@ async function sendHeartbeat(payload) {
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         team: Array.isArray(result.team) ? result.team : [],
         messages: Array.isArray(result.messages) ? result.messages : [],
+        tasks: Array.isArray(result.tasks) ? result.tasks : void 0,
         suggestions: Array.isArray(result.suggestions) ? result.suggestions : void 0
       });
     } catch {
     }
+  }
+  if (config.refreshToken && isTokenExpiringSoon(config.accessToken)) {
+    refreshAccessToken().catch(() => {
+    });
   }
   return {
     ok: result.ok,
     error: result.error,
     team: Array.isArray(result.team) ? result.team : void 0,
     messages: Array.isArray(result.messages) ? result.messages : void 0,
-    suggestions: Array.isArray(result.suggestions) ? result.suggestions : void 0
+    tasks: Array.isArray(result.tasks) ? result.tasks : void 0,
+    suggestions: Array.isArray(result.suggestions) ? result.suggestions : void 0,
+    notifications: Array.isArray(result.notifications) ? result.notifications : void 0
   };
 }
 function fireHeartbeat(overrides = {}) {
@@ -728,14 +753,23 @@ var QUERY_TIMEOUT_MS = 8e3;
 var INSERT_TIMEOUT_MS = 5e3;
 var MAX_RESPONSE_BYTES = 512e3;
 var MAX_PAYLOAD_BYTES2 = 64e3;
-function getSupabaseConfig() {
+async function getSupabaseConfig() {
   let config;
   try {
     config = readCloudConfig();
   } catch {
     return null;
   }
-  if (!config.supabaseUrl || !config.supabaseAnonKey || !config.accessToken || !config.userId || !config.projectId) {
+  if (!config.supabaseUrl || !config.supabaseAnonKey || !config.userId || !config.projectId) {
+    return null;
+  }
+  if (!config.accessToken && config.refreshToken) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      config = readCloudConfig();
+    }
+  }
+  if (!config.accessToken) {
     return null;
   }
   return {
@@ -747,7 +781,7 @@ function getSupabaseConfig() {
   };
 }
 async function supabaseQuery(table, params, options = {}) {
-  const cfg = getSupabaseConfig();
+  const cfg = await getSupabaseConfig();
   if (!cfg) {
     return { success: false, error: "Cloud not configured." };
   }
@@ -766,6 +800,27 @@ async function supabaseQuery(table, params, options = {}) {
     });
   } catch {
     return { success: false, error: "Request failed." };
+  }
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const freshConfig = readCloudConfig();
+      if (freshConfig.accessToken) {
+        try {
+          response = await fetch(url, {
+            method: "GET",
+            headers: {
+              "apikey": cfg.supabaseAnonKey,
+              "Authorization": `Bearer ${freshConfig.accessToken}`,
+              "Accept": "application/json"
+            },
+            signal: AbortSignal.timeout(timeout)
+          });
+        } catch {
+          return { success: false, error: "Request failed after token refresh." };
+        }
+      }
+    }
   }
   if (!response.ok) {
     return { success: false, error: `HTTP ${response.status}` };
@@ -794,7 +849,7 @@ async function supabaseQuery(table, params, options = {}) {
   return { success: true, data: body };
 }
 async function supabaseInsert(table, payload) {
-  const cfg = getSupabaseConfig();
+  const cfg = await getSupabaseConfig();
   if (!cfg) {
     return { success: false, error: "Cloud not configured." };
   }
@@ -819,14 +874,36 @@ async function supabaseInsert(table, payload) {
   } catch {
     return { success: false, error: "Request failed." };
   }
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const freshConfig = readCloudConfig();
+      if (freshConfig.accessToken) {
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "apikey": cfg.supabaseAnonKey,
+              "Authorization": `Bearer ${freshConfig.accessToken}`,
+              "Content-Type": "application/json",
+              "Prefer": "return=minimal"
+            },
+            body,
+            signal: AbortSignal.timeout(INSERT_TIMEOUT_MS)
+          });
+        } catch {
+          return { success: false, error: "Request failed after token refresh." };
+        }
+      }
+    }
+  }
   if (!response.ok) {
     return { success: false, error: `HTTP ${response.status}` };
   }
   return { success: true, data: void 0 };
 }
 function fireCloudActivity(activity) {
-  try {
-    const cfg = getSupabaseConfig();
+  getSupabaseConfig().then((cfg) => {
     if (!cfg) return;
     const payload = {
       project_id: cfg.projectId,
@@ -834,10 +911,9 @@ function fireCloudActivity(activity) {
       type: activity.type,
       message: activity.message
     };
-    supabaseInsert("activity", payload).catch(() => {
-    });
-  } catch {
-  }
+    return supabaseInsert("activity", payload);
+  }).catch(() => {
+  });
 }
 
 // src/team/core/team-state.ts
@@ -1155,7 +1231,7 @@ function getDailyHistory(state, maxDays = 14) {
       eventCount: events.length
     });
   }
-  days.sort((a, b5) => a.date.localeCompare(b5.date));
+  days.sort((a, b6) => a.date.localeCompare(b6.date));
   return days.slice(-maxDays);
 }
 function getStreak(history) {
@@ -1171,7 +1247,7 @@ function getStreak(history) {
 }
 function getAverageScore(history) {
   if (history.length === 0) return 0;
-  const sum = history.reduce((acc, d7) => acc + d7.score, 0);
+  const sum = history.reduce((acc, d13) => acc + d13.score, 0);
   return Math.round(sum / history.length);
 }
 
@@ -1465,49 +1541,49 @@ function saveContext(summary, fields = {}, explicitTaskId, quiet = false) {
     info(`Session context saved (${ctx.id}).`);
     return;
   }
-  const gB8 = chalk4.greenBright;
-  const gD6 = chalk4.dim.green;
-  const c6 = chalk4.cyan;
-  const d7 = chalk4.dim;
+  const gB9 = chalk4.greenBright;
+  const gD7 = chalk4.dim.green;
+  const c7 = chalk4.cyan;
+  const d13 = chalk4.dim;
   console.log("");
-  console.log(gD6("  \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557"));
-  console.log(gD6("  \u2551") + gB8("   SESSION CONTEXT SAVED                 ") + gD6("\u2551"));
-  console.log(gD6("  \u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563"));
-  console.log(gD6("  \u2551") + "                                           " + gD6("\u2551"));
-  printWrapped(summary, gD6);
-  console.log(gD6("  \u2551") + "                                           " + gD6("\u2551"));
-  console.log(gD6("  \u2551") + d7(`  ID: ${ctx.id}`) + " ".repeat(Math.max(0, 35 - ctx.id.length)) + gD6("\u2551"));
+  console.log(gD7("  \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557"));
+  console.log(gD7("  \u2551") + gB9("   SESSION CONTEXT SAVED                 ") + gD7("\u2551"));
+  console.log(gD7("  \u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563"));
+  console.log(gD7("  \u2551") + "                                           " + gD7("\u2551"));
+  printWrapped(summary, gD7);
+  console.log(gD7("  \u2551") + "                                           " + gD7("\u2551"));
+  console.log(gD7("  \u2551") + d13(`  ID: ${ctx.id}`) + " ".repeat(Math.max(0, 35 - ctx.id.length)) + gD7("\u2551"));
   const taskRef = explicitTaskId ? state.tasks.find((t) => t.id === explicitTaskId) : active;
   if (taskRef) {
     const taskInfo = `  Task: ${taskRef.id} - ${taskRef.title}`;
-    console.log(gD6("  \u2551") + d7(taskInfo.slice(0, 41).padEnd(41)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + d13(taskInfo.slice(0, 41).padEnd(41)) + gD7("\u2551"));
   }
   if (ctx.decisions?.length) {
-    console.log(gD6("  \u2551") + "                                           " + gD6("\u2551"));
-    console.log(gD6("  \u2551") + c6("  Decisions:".padEnd(41)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + "                                           " + gD7("\u2551"));
+    console.log(gD7("  \u2551") + c7("  Decisions:".padEnd(41)) + gD7("\u2551"));
     for (const dec of ctx.decisions) {
-      console.log(gD6("  \u2551") + d7(`    - ${dec}`.slice(0, 41).padEnd(41)) + gD6("\u2551"));
+      console.log(gD7("  \u2551") + d13(`    - ${dec}`.slice(0, 41).padEnd(41)) + gD7("\u2551"));
     }
   }
   if (ctx.openQuestions?.length) {
-    console.log(gD6("  \u2551") + c6("  Open Questions:".padEnd(41)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + c7("  Open Questions:".padEnd(41)) + gD7("\u2551"));
     for (const q of ctx.openQuestions) {
-      console.log(gD6("  \u2551") + d7(`    ? ${q}`.slice(0, 41).padEnd(41)) + gD6("\u2551"));
+      console.log(gD7("  \u2551") + d13(`    ? ${q}`.slice(0, 41).padEnd(41)) + gD7("\u2551"));
     }
   }
   if (ctx.projectState) {
-    console.log(gD6("  \u2551") + c6("  State: ") + d7(ctx.projectState.slice(0, 32).padEnd(32)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + c7("  State: ") + d13(ctx.projectState.slice(0, 32).padEnd(32)) + gD7("\u2551"));
   }
   if (ctx.techStack?.length) {
-    console.log(gD6("  \u2551") + c6("  Stack: ") + d7(ctx.techStack.join(", ").slice(0, 32).padEnd(32)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + c7("  Stack: ") + d13(ctx.techStack.join(", ").slice(0, 32).padEnd(32)) + gD7("\u2551"));
   }
-  console.log(gD6("  \u2551") + "                                           " + gD6("\u2551"));
-  console.log(gD6("  \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D"));
+  console.log(gD7("  \u2551") + "                                           " + gD7("\u2551"));
+  console.log(gD7("  \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D"));
   console.log("");
   info("This context will auto-inject into your next AI coding session via the guard hook.");
   info(`${state.sessionContexts.length}/${MAX_CONTEXTS} context slots used.`);
 }
-function printWrapped(text, gD6) {
+function printWrapped(text, gD7) {
   const maxLine = 39;
   const words = text.split(" ");
   let line = "";
@@ -1522,7 +1598,7 @@ function printWrapped(text, gD6) {
   }
   if (line) lines.push(line);
   for (const l of lines) {
-    console.log(gD6("  \u2551") + `  ${l.padEnd(41)}` + gD6("\u2551"));
+    console.log(gD7("  \u2551") + `  ${l.padEnd(41)}` + gD7("\u2551"));
   }
 }
 function showContext() {
@@ -1534,44 +1610,44 @@ function showContext() {
   }
   const latest = state.sessionContexts[state.sessionContexts.length - 1];
   const age = getTimeAgo(latest.savedAt);
-  const gB8 = chalk4.greenBright;
-  const gD6 = chalk4.dim.green;
-  const c6 = chalk4.cyan;
-  const d7 = chalk4.dim;
+  const gB9 = chalk4.greenBright;
+  const gD7 = chalk4.dim.green;
+  const c7 = chalk4.cyan;
+  const d13 = chalk4.dim;
   console.log("");
-  console.log(gD6("  \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557"));
-  console.log(gD6("  \u2551") + gB8("   LAST SESSION CONTEXT                  ") + gD6("\u2551"));
-  console.log(gD6("  \u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563"));
-  console.log(gD6("  \u2551") + "                                           " + gD6("\u2551"));
-  console.log(gD6("  \u2551") + c6(`  ${latest.id}`) + d7(` saved ${age}`.padEnd(41 - latest.id.length)) + gD6("\u2551"));
+  console.log(gD7("  \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557"));
+  console.log(gD7("  \u2551") + gB9("   LAST SESSION CONTEXT                  ") + gD7("\u2551"));
+  console.log(gD7("  \u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563"));
+  console.log(gD7("  \u2551") + "                                           " + gD7("\u2551"));
+  console.log(gD7("  \u2551") + c7(`  ${latest.id}`) + d13(` saved ${age}`.padEnd(41 - latest.id.length)) + gD7("\u2551"));
   if (latest.taskId) {
     const task = state.tasks.find((t) => t.id === latest.taskId);
     const taskInfo = task ? `  Task: ${task.id} - ${task.title}` : `  Task: ${latest.taskId}`;
-    console.log(gD6("  \u2551") + d7(taskInfo.slice(0, 41).padEnd(41)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + d13(taskInfo.slice(0, 41).padEnd(41)) + gD7("\u2551"));
   }
-  console.log(gD6("  \u2551") + "                                           " + gD6("\u2551"));
-  printWrapped(latest.summary, gD6);
+  console.log(gD7("  \u2551") + "                                           " + gD7("\u2551"));
+  printWrapped(latest.summary, gD7);
   if (latest.decisions?.length) {
-    console.log(gD6("  \u2551") + "                                           " + gD6("\u2551"));
-    console.log(gD6("  \u2551") + c6("  Decisions:".padEnd(41)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + "                                           " + gD7("\u2551"));
+    console.log(gD7("  \u2551") + c7("  Decisions:".padEnd(41)) + gD7("\u2551"));
     for (const dec of latest.decisions) {
-      console.log(gD6("  \u2551") + d7(`    - ${dec}`.slice(0, 41).padEnd(41)) + gD6("\u2551"));
+      console.log(gD7("  \u2551") + d13(`    - ${dec}`.slice(0, 41).padEnd(41)) + gD7("\u2551"));
     }
   }
   if (latest.openQuestions?.length) {
-    console.log(gD6("  \u2551") + c6("  Open Questions:".padEnd(41)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + c7("  Open Questions:".padEnd(41)) + gD7("\u2551"));
     for (const q of latest.openQuestions) {
-      console.log(gD6("  \u2551") + d7(`    ? ${q}`.slice(0, 41).padEnd(41)) + gD6("\u2551"));
+      console.log(gD7("  \u2551") + d13(`    ? ${q}`.slice(0, 41).padEnd(41)) + gD7("\u2551"));
     }
   }
   if (latest.projectState) {
-    console.log(gD6("  \u2551") + c6("  State: ") + d7(latest.projectState.slice(0, 32).padEnd(32)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + c7("  State: ") + d13(latest.projectState.slice(0, 32).padEnd(32)) + gD7("\u2551"));
   }
   if (latest.techStack?.length) {
-    console.log(gD6("  \u2551") + c6("  Stack: ") + d7(latest.techStack.join(", ").slice(0, 32).padEnd(32)) + gD6("\u2551"));
+    console.log(gD7("  \u2551") + c7("  Stack: ") + d13(latest.techStack.join(", ").slice(0, 32).padEnd(32)) + gD7("\u2551"));
   }
-  console.log(gD6("  \u2551") + "                                           " + gD6("\u2551"));
-  console.log(gD6("  \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D"));
+  console.log(gD7("  \u2551") + "                                           " + gD7("\u2551"));
+  console.log(gD7("  \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D"));
   console.log("");
 }
 function listContexts() {
@@ -1581,29 +1657,29 @@ function listContexts() {
     info('Save one with: vf context "summary of what was done..."');
     return;
   }
-  const gB8 = chalk4.greenBright;
-  const d7 = chalk4.dim;
-  const c6 = chalk4.cyan;
-  const y7 = chalk4.yellow;
+  const gB9 = chalk4.greenBright;
+  const d13 = chalk4.dim;
+  const c7 = chalk4.cyan;
+  const y8 = chalk4.yellow;
   console.log("");
-  console.log(gB8("  SESSION CONTEXTS"));
-  console.log(d7("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"));
+  console.log(gB9("  SESSION CONTEXTS"));
+  console.log(d13("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"));
   console.log("");
   for (const ctx of state.sessionContexts) {
     const age = getTimeAgo(ctx.savedAt);
-    const taskInfo = ctx.taskId ? d7(` (${ctx.taskId})`) : "";
+    const taskInfo = ctx.taskId ? d13(` (${ctx.taskId})`) : "";
     const preview = ctx.summary.length > 50 ? ctx.summary.slice(0, 47) + "..." : ctx.summary;
-    console.log(`  ${c6(ctx.id)}${taskInfo}  ${d7(age)}`);
+    console.log(`  ${c7(ctx.id)}${taskInfo}  ${d13(age)}`);
     console.log(`  ${preview}`);
     if (ctx.projectState) {
-      console.log(`  ${y7("state:")} ${ctx.projectState}`);
+      console.log(`  ${y8("state:")} ${ctx.projectState}`);
     }
     if (ctx.techStack?.length) {
-      console.log(`  ${y7("stack:")} ${ctx.techStack.join(", ")}`);
+      console.log(`  ${y8("stack:")} ${ctx.techStack.join(", ")}`);
     }
     console.log("");
   }
-  console.log(d7(`  ${state.sessionContexts.length}/${MAX_CONTEXTS} slots used`));
+  console.log(d13(`  ${state.sessionContexts.length}/${MAX_CONTEXTS} slots used`));
   console.log("");
 }
 function clearContexts() {
@@ -1645,9 +1721,9 @@ var doneCommand = new Command6("done").description("Complete the current active 
   const { met, total } = criteriaProgress(task);
   if (total > 0 && met < total && !opts.force) {
     warn(`Not all criteria met (${met}/${total}).`);
-    for (const c6 of task.acceptanceCriteria) {
-      const icon = c6.met ? "  [\u2713]" : "  [ ]";
-      console.log(`${icon} ${c6.text}`);
+    for (const c7 of task.acceptanceCriteria) {
+      const icon = c7.met ? "  [\u2713]" : "  [ ]";
+      console.log(`${icon} ${c7.text}`);
     }
     console.log("");
     info('Use --force to complete anyway, or check criteria with "vf check".');
@@ -1658,7 +1734,7 @@ var doneCommand = new Command6("done").description("Complete the current active 
   state = updateTask(state, task.id, {
     status: "done",
     completedAt: timestamp,
-    acceptanceCriteria: task.acceptanceCriteria.map((c6) => ({ ...c6, met: true }))
+    acceptanceCriteria: task.acceptanceCriteria.map((c7) => ({ ...c7, met: true }))
   });
   state = {
     ...state,
@@ -1684,9 +1760,9 @@ var doneCommand = new Command6("done").description("Complete the current active 
   const carried = {};
   if (lastCtx?.projectState) carried.projectState = lastCtx.projectState;
   if (lastCtx?.techStack?.length) carried.techStack = lastCtx.techStack;
-  const completedCriteria = task.acceptanceCriteria.filter((c6) => c6.met).map((c6) => c6.text);
+  const completedCriteria = task.acceptanceCriteria.filter((c7) => c7.met).map((c7) => c7.text);
   if (completedCriteria.length > 0) {
-    carried.decisions = completedCriteria.map((c6) => `Done: ${c6}`);
+    carried.decisions = completedCriteria.map((c7) => `Done: ${c7}`);
   }
   saveContext(
     `Completed ${task.id}: "${task.title}"`,
@@ -1800,7 +1876,7 @@ function sparkline(events) {
     }
   }).join("");
 }
-var statusCommand = new Command7("status").description("Show the focus dashboard").option("--json", "Output as JSON").option("--worker <name>", "Identity for cross-tab sync").action((opts) => {
+var statusCommand = new Command7("status").description("Show the focus dashboard").option("--json", "Output as JSON").option("--worker <name>", "Identity for cross-tab sync").action(async (opts) => {
   const state = readState();
   const worker = resolveWorker(opts);
   const workerKey = worker ?? "__default__";
@@ -1953,16 +2029,100 @@ var statusCommand = new Command7("status").description("Show the focus dashboard
       W
     ));
   }
-  lines.push(sectionHeader("CLOUD", W));
+  lines.push(sectionHeader("VIBETEAMZ", W));
   lines.push(boxEmpty(W));
   try {
     if (isCloudLinked()) {
       const cloudCfg = readCloudConfig();
-      const projectLabel = cloudCfg.projectId ? cloudCfg.projectId.slice(0, 8) + "..." : "?";
-      lines.push(boxRow(
-        d("   STATUS  ") + gB("\u2665") + g(" connected") + d("   PROJECT ") + c(projectLabel),
-        W
-      ));
+      const cache = readCloudCache(60 * 60 * 1e3);
+      if (cache) {
+        if (cache.team && cache.team.length > 0) {
+          const onlineTeam = cache.team.filter((t) => {
+            const ageMs = Date.now() - new Date(t.last_heartbeat).getTime();
+            return ageMs < 60 * 60 * 1e3;
+          });
+          if (onlineTeam.length > 0) {
+            const teamNames = onlineTeam.map((t) => {
+              const name = t.profiles?.username ?? t.user_id.slice(0, 8);
+              const icon = t.status === "active" ? gB("\u25CF") : y("\u25D0");
+              return icon + " " + c(name);
+            }).join(d("  "));
+            lines.push(boxRow(d("   TEAM    ") + teamNames, W));
+            lines.push(boxEmpty(W));
+          }
+        }
+      }
+      const pid = cloudCfg.projectId;
+      const bearerToken = cloudCfg.apiKey ?? cloudCfg.accessToken;
+      if (pid && bearerToken) {
+        const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${bearerToken}` };
+        const baseUrl = cloudCfg.apiUrl;
+        let allTasks = [];
+        let milestones = [];
+        try {
+          const [tasksResp, msResp] = await Promise.all([
+            fetch(`${baseUrl}/api/projects/${pid}/tasks`, { headers, signal: AbortSignal.timeout(8e3) }),
+            fetch(`${baseUrl}/api/projects/${pid}/milestones`, { headers, signal: AbortSignal.timeout(8e3) })
+          ]);
+          if (tasksResp.ok) allTasks = await tasksResp.json();
+          if (msResp.ok) {
+            const msBody = await msResp.json();
+            milestones = Array.isArray(msBody) ? msBody : msBody.milestones ?? [];
+          }
+        } catch {
+        }
+        if (allTasks.length > 0) {
+          const msMap = /* @__PURE__ */ new Map();
+          for (const ms of milestones) msMap.set(ms.id, ms);
+          const byMs = /* @__PURE__ */ new Map();
+          for (const t of allTasks) {
+            const key = t.milestone_id;
+            if (!byMs.has(key)) byMs.set(key, []);
+            byMs.get(key).push(t);
+          }
+          const msKeys = [...byMs.keys()].sort((a, b6) => {
+            if (a === null) return 1;
+            if (b6 === null) return -1;
+            return 0;
+          });
+          for (const msId of msKeys) {
+            const group = byMs.get(msId);
+            const doneN = group.filter((t) => t.status === "done").length;
+            const totalN = group.length;
+            const pct = totalN > 0 ? Math.round(doneN / totalN * 100) : 0;
+            const msTitle = msId ? msMap.get(msId)?.title ?? msId.slice(0, 8) : "Backlog";
+            const msIcon = msId ? y("\u25C9") : d("\u2261");
+            const barW = 12;
+            const filled = totalN > 0 ? Math.round(doneN / totalN * barW) : 0;
+            const bar = y("\u2588".repeat(filled)) + d("\u2591".repeat(barW - filled));
+            lines.push(boxRow(
+              "   " + msIcon + " " + b(msTitle.length > 20 ? msTitle.slice(0, 17) + "..." : msTitle).padEnd(20) + " " + bar + " " + d(`${doneN}/${totalN}`) + " " + (pct > 0 ? y(`${pct}%`) : d("0%")),
+              W
+            ));
+            const openTasks = group.filter((t) => t.status !== "done");
+            for (const t of openTasks) {
+              const icon = t.status === "in_progress" ? c("\u25D0") : "\u25CB";
+              const title = t.title.length > 32 ? t.title.slice(0, 29) + "..." : t.title;
+              const owner = t.assigned_to === cloudCfg.userId ? d(" @you") : "";
+              lines.push(boxRow("      " + icon + " " + title + owner, W));
+            }
+          }
+          lines.push(boxEmpty(W));
+          const totalAll = allTasks.length;
+          const totalDone = allTasks.filter((t) => t.status === "done").length;
+          lines.push(boxRow(d(`   ${totalDone}/${totalAll} tasks done \xB7 ${milestones.length} milestone${milestones.length !== 1 ? "s" : ""}`), W));
+        } else {
+          lines.push(boxRow(d("   No tasks yet."), W));
+        }
+      }
+      if (cache?.suggestions && cache.suggestions.length > 0) {
+        lines.push(boxEmpty(W));
+        for (const s of cache.suggestions.slice(0, 2)) {
+          const urgIcon = s.urgency === "high" ? r("!") : s.urgency === "medium" ? y("~") : d("\xB7");
+          const msg = s.message.length > 45 ? s.message.slice(0, 42) + "..." : s.message;
+          lines.push(boxRow("   " + urgIcon + " " + d(msg), W));
+        }
+      }
     } else {
       lines.push(boxRow(
         d("   STATUS  ") + y("\u2665") + d(" not linked") + d("   run ") + c("vf setup") + d(" to connect"),
@@ -1970,7 +2130,7 @@ var statusCommand = new Command7("status").description("Show the focus dashboard
       ));
     }
   } catch {
-    lines.push(boxRow(d("   STATUS  ") + d("\u2665 unknown"), W));
+    lines.push(boxRow(d("   ") + d("\u2665 offline"), W));
   }
   const recent = state.focusEvents.slice(-5).reverse();
   if (recent.length > 0) {
@@ -2204,32 +2364,32 @@ var checkCommand = new Command11("check").description("Mark acceptance criteria 
     return;
   }
   if (opts.all) {
-    criteriaIds = task.acceptanceCriteria.map((c6) => c6.id);
+    criteriaIds = task.acceptanceCriteria.map((c7) => c7.id);
   }
   if (criteriaIds.length === 0) {
     console.log(chalk8.bold(`Criteria for ${task.id}: "${task.title}"`));
     console.log("");
-    for (const c6 of task.acceptanceCriteria) {
-      const icon = c6.met ? chalk8.green("[\u2713]") : chalk8.gray("[ ]");
-      console.log(`  ${icon} ${chalk8.dim(c6.id)} ${c6.text}`);
+    for (const c7 of task.acceptanceCriteria) {
+      const icon = c7.met ? chalk8.green("[\u2713]") : chalk8.gray("[ ]");
+      console.log(`  ${icon} ${chalk8.dim(c7.id)} ${c7.text}`);
     }
     console.log("");
     info('Use "vf check <id>" to mark criteria as met.');
     info('Use "vf check --all" to mark all as met.');
     return;
   }
-  const updatedCriteria = task.acceptanceCriteria.map((c6) => ({
-    ...c6,
-    met: criteriaIds.includes(c6.id) ? true : c6.met
+  const updatedCriteria = task.acceptanceCriteria.map((c7) => ({
+    ...c7,
+    met: criteriaIds.includes(c7.id) ? true : c7.met
   }));
   state = updateTask(state, task.id, { acceptanceCriteria: updatedCriteria });
   state.workerMeta = stampWorkerMeta(state, workerKey);
   writeState(state);
   fireHeartbeat();
   const checked = criteriaIds.filter(
-    (id) => task.acceptanceCriteria.some((c6) => c6.id === id)
+    (id) => task.acceptanceCriteria.some((c7) => c7.id === id)
   );
-  const met = updatedCriteria.filter((c6) => c6.met).length;
+  const met = updatedCriteria.filter((c7) => c7.met).length;
   const total = updatedCriteria.length;
   fireCloudActivity({ type: "criterion_checked", message: `Checked ${checked.length} criteria on ${task.id}` });
   fireDiscordEvent({
@@ -2276,8 +2436,8 @@ Project Scope: ${state.projectName}`));
     if (state.projectScope.boundaries.length > 0) {
       console.log("");
       console.log(chalk9.cyan("Boundaries:"));
-      for (const b5 of state.projectScope.boundaries) {
-        console.log(`  - ${b5}`);
+      for (const b6 of state.projectScope.boundaries) {
+        console.log(`  - ${b6}`);
       }
     }
     if (state.projectScope.inScope.length > 0) {
@@ -2408,8 +2568,8 @@ function generateConcise(state, task) {
   if (task.acceptanceCriteria.length > 0) {
     lines.push("");
     lines.push("Criteria:");
-    for (const c6 of task.acceptanceCriteria) {
-      lines.push(`- ${c6.text}`);
+    for (const c7 of task.acceptanceCriteria) {
+      lines.push(`- ${c7.text}`);
     }
   }
   lines.push("");
@@ -2431,8 +2591,8 @@ function generateDetailed(state, task) {
   }
   if (task.acceptanceCriteria.length > 0) {
     lines.push("### Acceptance Criteria");
-    for (const c6 of task.acceptanceCriteria) {
-      lines.push(`- [ ] ${c6.text}`);
+    for (const c7 of task.acceptanceCriteria) {
+      lines.push(`- [ ] ${c7.text}`);
     }
     lines.push("");
   }
@@ -2467,8 +2627,8 @@ function generateChecklist(state, task) {
     lines.push("");
   }
   lines.push("## Checklist");
-  for (const c6 of task.acceptanceCriteria) {
-    lines.push(`- [ ] ${c6.text}`);
+  for (const c7 of task.acceptanceCriteria) {
+    lines.push(`- [ ] ${c7.text}`);
   }
   lines.push("- [ ] All criteria verified");
   lines.push("- [ ] No unrelated changes introduced");
@@ -2786,11 +2946,11 @@ function startInteractive() {
         const cr = active.acceptanceCriteria[ds.critCursor];
         if (cr) {
           const updated = active.acceptanceCriteria.map(
-            (c6, i) => i === ds.critCursor ? { ...c6, met: !c6.met } : c6
+            (c7, i) => i === ds.critCursor ? { ...c7, met: !c7.met } : c7
           );
           appState = updateTask(appState, active.id, { acceptanceCriteria: updated });
           writeState(appState);
-          const newMet = updated.filter((c6) => c6.met).length;
+          const newMet = updated.filter((c7) => c7.met).length;
           flash(`${cr.met ? "UNCHECKED" : "CHECKED"}: ${cr.text} (${newMet}/${updated.length})`, cr.met ? y2 : gB2);
         }
       } else if (ds.panel === "tasks") {
@@ -2811,7 +2971,7 @@ function startInteractive() {
         appState = updateTask(appState, active.id, {
           status: "done",
           completedAt: timestamp,
-          acceptanceCriteria: active.acceptanceCriteria.map((c6) => ({ ...c6, met: true }))
+          acceptanceCriteria: active.acceptanceCriteria.map((c7) => ({ ...c7, met: true }))
         });
         appState = {
           ...appState,
@@ -3214,14 +3374,14 @@ var watchCommand = new Command17("watch").description("Watch for file changes + 
       const state = readState();
       const changes = detectChanges(state, worker);
       if (changes.length > 0) {
-        for (const c6 of changes) {
-          const icon = c6.type === "start" ? chalk13.greenBright("\u25B6") : c6.type === "complete" ? chalk13.cyanBright("\u2713") : c6.type === "abandon" ? chalk13.red("\u2717") : c6.type === "switch_away" ? chalk13.yellow("\u25C0") : c6.type === "switch_to" ? chalk13.green("\u25B6") : c6.type === "pushback_override" ? chalk13.red("!") : c6.type === "message" ? chalk13.magentaBright("\u{1F4AC}") : chalk13.dim("\xB7");
-          const time = new Date(c6.timestamp).toLocaleTimeString("de-DE", {
+        for (const c7 of changes) {
+          const icon = c7.type === "start" ? chalk13.greenBright("\u25B6") : c7.type === "complete" ? chalk13.cyanBright("\u2713") : c7.type === "abandon" ? chalk13.red("\u2717") : c7.type === "switch_away" ? chalk13.yellow("\u25C0") : c7.type === "switch_to" ? chalk13.green("\u25B6") : c7.type === "pushback_override" ? chalk13.red("!") : c7.type === "message" ? chalk13.magentaBright("\u{1F4AC}") : chalk13.dim("\xB7");
+          const time = new Date(c7.timestamp).toLocaleTimeString("de-DE", {
             hour: "2-digit",
             minute: "2-digit",
             second: "2-digit"
           });
-          console.log(`  ${chalk13.dim(time)} ${icon} ${chalk13.bold(c6.worker)}: ${c6.description}`);
+          console.log(`  ${chalk13.dim(time)} ${icon} ${chalk13.bold(c7.worker)}: ${c7.description}`);
         }
         updateState((s) => ({ ...s, workerMeta: stampWorkerMeta(s, worker) }));
       }
@@ -3234,6 +3394,22 @@ var watchCommand = new Command17("watch").description("Watch for file changes + 
   let recentFiles = [];
   let pendingHeartbeat = null;
   let watcher = null;
+  const seenNotificationIds = /* @__PURE__ */ new Set();
+  function showNotifications(notifications) {
+    if (!notifications || notifications.length === 0) return;
+    const time = (/* @__PURE__ */ new Date()).toLocaleTimeString("de-DE", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+    for (const n of notifications) {
+      if (seenNotificationIds.has(n.id)) continue;
+      seenNotificationIds.add(n.id);
+      const typeIcon3 = n.type === "mention" ? chalk13.cyan("@") : n.type === "task_assigned" ? chalk13.yellow("\u2192") : n.type === "task_completed" ? chalk13.green("\u2713") : n.type === "member_joined" ? chalk13.green("+") : chalk13.magenta("\u2605");
+      const actor = n.actor?.username ? chalk13.bold(n.actor.username) : "someone";
+      console.log(`  ${chalk13.dim(time)} ${typeIcon3} ${chalk13.yellowBright("\u{1F514}")} ${actor} ${n.title}${n.body ? chalk13.dim(` \u2014 ${n.body.slice(0, 60)}`) : ""}`);
+    }
+  }
   function showSuggestions(suggestions) {
     if (!suggestions || suggestions.length === 0) return;
     const now2 = Date.now();
@@ -3279,6 +3455,7 @@ var watchCommand = new Command17("watch").description("Watch for file changes + 
       if (result.ok) {
         console.log(`  ${chalk13.dim(time)} ${chalk13.magenta("\u2665")} heartbeat sent (${filesToSend.length} files)`);
         showSuggestions(result.suggestions);
+        showNotifications(result.notifications);
       }
     }).catch(() => {
     });
@@ -3305,6 +3482,7 @@ var watchCommand = new Command17("watch").description("Watch for file changes + 
             });
             console.log(`  ${chalk13.dim(time)} ${chalk13.magenta("\u2665")} initial heartbeat sent`);
             showSuggestions(r6.suggestions);
+            showNotifications(r6.notifications);
           }
         }).catch(() => {
         });
@@ -4021,13 +4199,117 @@ var joinCommand = new Command22("join").description("Join an existing project (t
   });
 });
 
+// src/commands/all.ts
+import chalk16 from "chalk";
+import { Command as Command23 } from "commander";
+var g4 = chalk16.green;
+var gB4 = chalk16.greenBright;
+var gD4 = chalk16.dim.green;
+var c4 = chalk16.cyan;
+var cB4 = chalk16.cyanBright;
+var y4 = chalk16.yellow;
+var d3 = chalk16.dim;
+var b3 = chalk16.bold;
+function hLine3(char, width) {
+  return char.repeat(width);
+}
+var allCommand = new Command23("all").description("Show all tasks: local + vibeteamz").action(async () => {
+  const state = readState();
+  const active = state.tasks.find((t) => t.status === "active");
+  const backlog = state.tasks.filter((t) => t.status === "backlog");
+  const doneCount = state.tasks.filter((t) => t.status === "done").length;
+  const total = state.tasks.length;
+  const lines = [];
+  lines.push("");
+  lines.push(gB4("  LOCAL TASKS") + d3(` (${doneCount}/${total} done)`));
+  lines.push(d3("  " + hLine3("\u2500", 54)));
+  if (active) {
+    const elapsed = active.startedAt ? elapsedMinutes(active.startedAt) : 0;
+    const { met, total: ct } = criteriaProgress(active);
+    const pctStr = ct > 0 ? ` ${Math.round(met / ct * 100)}%` : "";
+    lines.push("  " + gB4("\u25B6") + " " + cB4(active.id.padEnd(6)) + b3(active.title.slice(0, 40)) + d3(` ${formatDuration(elapsed)}`) + g4(pctStr));
+  }
+  for (const t of backlog) {
+    lines.push("  " + y4("\u25CB") + " " + y4(t.id.padEnd(6)) + t.title.slice(0, 46));
+  }
+  if (!active && backlog.length === 0) {
+    lines.push(d3("  No active or backlog tasks."));
+  }
+  lines.push("");
+  try {
+    if (isCloudLinked()) {
+      const cfg = readCloudConfig();
+      const pid = cfg.projectId;
+      const token = cfg.apiKey ?? cfg.accessToken;
+      if (pid && token) {
+        const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
+        const [tasksResp, msResp] = await Promise.all([
+          fetch(`${cfg.apiUrl}/api/projects/${pid}/tasks`, { headers, signal: AbortSignal.timeout(8e3) }),
+          fetch(`${cfg.apiUrl}/api/projects/${pid}/milestones`, { headers, signal: AbortSignal.timeout(8e3) })
+        ]);
+        let tasks = [];
+        let milestones = [];
+        if (tasksResp.ok) tasks = await tasksResp.json();
+        if (msResp.ok) {
+          const body = await msResp.json();
+          milestones = Array.isArray(body) ? body : body.milestones ?? [];
+        }
+        const tasksDone = tasks.filter((t) => t.status === "done").length;
+        lines.push(gB4("  VIBETEAMZ TASKS") + d3(` (${tasksDone}/${tasks.length} done)`));
+        lines.push(d3("  " + hLine3("\u2500", 54)));
+        if (tasks.length > 0) {
+          const msMap = /* @__PURE__ */ new Map();
+          for (const ms of milestones) msMap.set(ms.id, ms);
+          const byMs = /* @__PURE__ */ new Map();
+          for (const t of tasks) {
+            const key = t.milestone_id;
+            if (!byMs.has(key)) byMs.set(key, []);
+            byMs.get(key).push(t);
+          }
+          const msKeys = [...byMs.keys()].sort((a, b6) => {
+            if (a === null) return 1;
+            if (b6 === null) return -1;
+            return 0;
+          });
+          for (const msId of msKeys) {
+            const group = byMs.get(msId);
+            const dn = group.filter((t) => t.status === "done").length;
+            const tn = group.length;
+            const pct = tn > 0 ? Math.round(dn / tn * 100) : 0;
+            const msTitle = msId ? msMap.get(msId)?.title ?? msId.slice(0, 8) : "Backlog";
+            const msIcon = msId ? y4("\u25C9") : d3("\u2261");
+            const barW = 10;
+            const filled = tn > 0 ? Math.round(dn / tn * barW) : 0;
+            const bar = y4("\u2588".repeat(filled)) + d3("\u2591".repeat(barW - filled));
+            lines.push("  " + msIcon + " " + b3(msTitle.padEnd(22)) + bar + " " + d3(`${dn}/${tn}`) + " " + (pct > 0 ? y4(`${pct}%`) : d3("0%")));
+            for (const t of group) {
+              const icon = t.status === "done" ? gB4("\u2713") : t.status === "in_progress" ? c4("\u25D0") : "\u25CB";
+              const title = t.status === "done" ? d3(t.title.slice(0, 38)) : t.title.slice(0, 38);
+              const owner = t.assigned_to === cfg.userId ? d3(" @you") : "";
+              lines.push("     " + icon + " " + title + owner);
+            }
+          }
+        } else {
+          lines.push(d3("  No vibeteamz tasks."));
+        }
+      }
+    } else {
+      lines.push(d3("  vibeteamz not linked. Run ") + c4("vf setup"));
+    }
+  } catch {
+    lines.push(d3("  vibeteamz offline"));
+  }
+  lines.push("");
+  console.log(lines.join("\n"));
+});
+
 // src/team/register.ts
-import { Command as Command30 } from "commander";
+import { Command as Command31 } from "commander";
 
 // src/team/commands/init.ts
 import os from "os";
-import { Command as Command23 } from "commander";
-var initCommand2 = new Command23("init").description("Initialize team mode for this vibe-focus project").requiredOption("--user <name>", "Your username (only letters, numbers, hyphens, underscores)").option("--team-name <name>", "Team name", "team").option("--skip-guard", "Skip auto-installing the focus guard").action(async (opts) => {
+import { Command as Command24 } from "commander";
+var initCommand2 = new Command24("init").description("Initialize team mode for this vibe-focus project").requiredOption("--user <name>", "Your username (only letters, numbers, hyphens, underscores)").option("--team-name <name>", "Team name", "team").option("--skip-guard", "Skip auto-installing the focus guard").action(async (opts) => {
   try {
     validateUsername(opts.user);
   } catch (e) {
@@ -4070,7 +4352,7 @@ var initCommand2 = new Command23("init").description("Initialize team mode for t
   console.log(`  Team:      ${opts.teamName}`);
   if (!opts.skipGuard) {
     try {
-      const { installGuard: installGuard2 } = await import("./guard-YP44YJKG.js");
+      const { installGuard: installGuard2 } = await import("./guard-C3NBOAAH.js");
       const agent = resolveAgent();
       const config = AGENT_CONFIGS[agent];
       console.log("");
@@ -4089,8 +4371,8 @@ var initCommand2 = new Command23("init").description("Initialize team mode for t
 });
 
 // src/team/commands/status.ts
-import chalk16 from "chalk";
-import { Command as Command24 } from "commander";
+import chalk17 from "chalk";
+import { Command as Command25 } from "commander";
 
 // src/team/core/presence.ts
 import fs9 from "fs";
@@ -4188,7 +4470,7 @@ function detectConflicts(myFiles, coworkers) {
         coworkers: [cw.presence.username]
       });
     }
-    const dirOverlaps = [...myDirs].filter((d7) => theirDirs.has(d7 + "/") || theirDirs.has(d7));
+    const dirOverlaps = [...myDirs].filter((d13) => theirDirs.has(d13 + "/") || theirDirs.has(d13));
     if (dirOverlaps.length > 0 && fileCollisions.length === 0) {
       warnings.push({
         type: "directory_overlap",
@@ -4208,37 +4490,37 @@ function goOffline() {
 }
 
 // src/team/commands/status.ts
-var g4 = chalk16.green;
-var gB4 = chalk16.greenBright;
-var gD4 = chalk16.dim.green;
-var c4 = chalk16.cyan;
-var cB4 = chalk16.cyanBright;
-var y4 = chalk16.yellow;
-var r3 = chalk16.red;
-var d3 = chalk16.dim;
-var b3 = chalk16.bold;
+var g5 = chalk17.green;
+var gB5 = chalk17.greenBright;
+var gD5 = chalk17.dim.green;
+var c5 = chalk17.cyan;
+var cB5 = chalk17.cyanBright;
+var y5 = chalk17.yellow;
+var r3 = chalk17.red;
+var d4 = chalk17.dim;
+var b4 = chalk17.bold;
 function stalenessColor(level) {
   switch (level) {
     case "active":
-      return gB4;
+      return gB5;
     case "idle":
-      return y4;
+      return y5;
     case "away":
       return r3;
     case "offline":
-      return d3;
+      return d4;
   }
 }
 function stalenessIcon(level) {
   switch (level) {
     case "active":
-      return gB4("\u25CF");
+      return gB5("\u25CF");
     case "idle":
-      return y4("\u25D0");
+      return y5("\u25D0");
     case "away":
       return r3("\u25CB");
     case "offline":
-      return d3("\u25CB");
+      return d4("\u25CB");
   }
 }
 function formatAge(minutes) {
@@ -4248,28 +4530,28 @@ function formatAge(minutes) {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
-function hLine3(char, width) {
+function hLine4(char, width) {
   return char.repeat(width);
 }
 function boxTop4(w) {
-  return gD4("\u2554" + hLine3("\u2550", w - 2) + "\u2557");
+  return gD5("\u2554" + hLine4("\u2550", w - 2) + "\u2557");
 }
 function boxBot4(w) {
-  return gD4("\u255A" + hLine3("\u2550", w - 2) + "\u255D");
+  return gD5("\u255A" + hLine4("\u2550", w - 2) + "\u255D");
 }
 function boxRow4(content, w) {
   const visible = content.replace(/\x1b\[[0-9;]*m/g, "");
   const pad = Math.max(0, w - 4 - visible.length);
-  return gD4("\u2551") + " " + content + " ".repeat(pad) + " " + gD4("\u2551");
+  return gD5("\u2551") + " " + content + " ".repeat(pad) + " " + gD5("\u2551");
 }
 function boxEmpty4(w) {
-  return gD4("\u2551") + " ".repeat(w - 2) + gD4("\u2551");
+  return gD5("\u2551") + " ".repeat(w - 2) + gD5("\u2551");
 }
 function sectionHeader3(label, w) {
   const remaining = w - 6 - label.length - 4;
-  return gD4("\u2560\u2500\u2500") + " " + gB4(label) + " " + gD4(hLine3("\u2500", Math.max(1, remaining)) + "\u2563");
+  return gD5("\u2560\u2500\u2500") + " " + gB5(label) + " " + gD5(hLine4("\u2500", Math.max(1, remaining)) + "\u2563");
 }
-var statusCommand2 = new Command24("status").description("Show team members and their current focus state").option("--json", "Output as JSON").action((opts) => {
+var statusCommand2 = new Command25("status").description("Show team members and their current focus state").option("--json", "Output as JSON").action((opts) => {
   try {
     writePresence();
   } catch {
@@ -4298,31 +4580,31 @@ var statusCommand2 = new Command24("status").description("Show team members and 
   lines.push("");
   lines.push(boxTop4(W2));
   lines.push(boxRow4(
-    gB4("TEAM") + d3("://") + c4(teamConfig.teamName) + d3(" > ") + cB4("COWORKER AWARENESS"),
+    gB5("TEAM") + d4("://") + c5(teamConfig.teamName) + d4(" > ") + cB5("COWORKER AWARENESS"),
     W2
   ));
   lines.push(sectionHeader3("TEAM MEMBERS", W2));
   lines.push(boxEmpty4(W2));
   if (allPresence.length === 0) {
-    lines.push(boxRow4(d3("   No team members found. Run: vf team init --user <name>"), W2));
+    lines.push(boxRow4(d4("   No team members found. Run: vf team init --user <name>"), W2));
   } else {
     lines.push(boxRow4(
-      d3("   USER          STATUS    TASK                  PROGRESS  HEARTBEAT"),
+      d4("   USER          STATUS    TASK                  PROGRESS  HEARTBEAT"),
       W2
     ));
-    lines.push(boxRow4(d3("   " + hLine3("\u2500", W2 - 8)), W2));
+    lines.push(boxRow4(d4("   " + hLine4("\u2500", W2 - 8)), W2));
     for (const presence of allPresence) {
       const isMe = presence.username === username;
-      const cw = coworkers.find((c6) => c6.presence.username === presence.username);
+      const cw = coworkers.find((c7) => c7.presence.username === presence.username);
       const staleness = cw?.staleness ?? "active";
       const age = cw?.heartbeatAge ?? 0;
       const icon = stalenessIcon(isMe ? "active" : staleness);
-      const nameColor = isMe ? cB4 : stalenessColor(staleness);
+      const nameColor = isMe ? cB5 : stalenessColor(staleness);
       const nameStr = nameColor((presence.username + (isMe ? " (you)" : "")).padEnd(14));
-      const statusStr = presence.taskStatus === "active" ? g4("active".padEnd(10)) : d3("idle".padEnd(10));
-      const taskStr = presence.taskId ? (b3(presence.taskId) + " " + (presence.taskTitle ?? "").slice(0, 16)).padEnd(22) : d3("\u2014".padEnd(22));
-      const pctStr = presence.taskId ? (presence.progress.percent + "%").padEnd(10) : d3("\u2014".padEnd(10));
-      const ageStr = isMe ? g4("now".padEnd(9)) : stalenessColor(staleness)(formatAge(age).padEnd(9));
+      const statusStr = presence.taskStatus === "active" ? g5("active".padEnd(10)) : d4("idle".padEnd(10));
+      const taskStr = presence.taskId ? (b4(presence.taskId) + " " + (presence.taskTitle ?? "").slice(0, 16)).padEnd(22) : d4("\u2014".padEnd(22));
+      const pctStr = presence.taskId ? (presence.progress.percent + "%").padEnd(10) : d4("\u2014".padEnd(10));
+      const ageStr = isMe ? g5("now".padEnd(9)) : stalenessColor(staleness)(formatAge(age).padEnd(9));
       lines.push(boxRow4(
         "   " + icon + " " + nameStr + statusStr + taskStr + pctStr + ageStr,
         W2
@@ -4333,10 +4615,10 @@ var statusCommand2 = new Command24("status").description("Show team members and 
     lines.push(sectionHeader3("CONFLICTS", W2));
     lines.push(boxEmpty4(W2));
     for (const conflict of conflicts) {
-      const severity = conflict.type === "file_collision" ? r3("FILE") : y4("DIR");
+      const severity = conflict.type === "file_collision" ? r3("FILE") : y5("DIR");
       const who = conflict.coworkers.join(", ");
       lines.push(boxRow4(
-        "   " + severity + d3(" ") + r3(conflict.files.join(", ").slice(0, 35)) + d3(" \u2190 ") + c4(who),
+        "   " + severity + d4(" ") + r3(conflict.files.join(", ").slice(0, 35)) + d4(" \u2190 ") + c5(who),
         W2
       ));
     }
@@ -4345,10 +4627,10 @@ var statusCommand2 = new Command24("status").description("Show team members and 
     lines.push(sectionHeader3("YOUR ACTIVE FILES", W2));
     lines.push(boxEmpty4(W2));
     for (const file of myFiles.slice(0, 8)) {
-      lines.push(boxRow4("   " + d3(file), W2));
+      lines.push(boxRow4("   " + d4(file), W2));
     }
     if (myFiles.length > 8) {
-      lines.push(boxRow4("   " + d3(`... and ${myFiles.length - 8} more`), W2));
+      lines.push(boxRow4("   " + d4(`... and ${myFiles.length - 8} more`), W2));
     }
   }
   lines.push(boxEmpty4(W2));
@@ -4359,8 +4641,8 @@ var statusCommand2 = new Command24("status").description("Show team members and 
 
 // src/team/commands/sync.ts
 import { execFileSync } from "child_process";
-import { Command as Command25 } from "commander";
-var syncCommand = new Command25("sync").description("Sync team presence files via Git (commit + pull + push)").option("--quiet", "Suppress output").action((opts) => {
+import { Command as Command26 } from "commander";
+var syncCommand = new Command26("sync").description("Sync team presence files via Git (commit + pull + push)").option("--quiet", "Suppress output").action((opts) => {
   const username = getUsername();
   const log = opts.quiet ? (() => {
   }) : console.log;
@@ -4426,9 +4708,9 @@ var syncCommand = new Command25("sync").description("Sync team presence files vi
 });
 
 // src/team/commands/who.ts
-import chalk17 from "chalk";
-import { Command as Command26 } from "commander";
-var whoCommand = new Command26("who").description("Check who is working on a specific file or directory").argument("<path>", "File or directory path to check").action((targetPath) => {
+import chalk18 from "chalk";
+import { Command as Command27 } from "commander";
+var whoCommand = new Command27("who").description("Check who is working on a specific file or directory").argument("<path>", "File or directory path to check").action((targetPath) => {
   try {
     writePresence();
   } catch {
@@ -4441,7 +4723,7 @@ var whoCommand = new Command26("who").description("Check who is working on a spe
   );
   const touching = [];
   if (iAmTouching) {
-    touching.push(`${chalk17.cyanBright(username)} (you)`);
+    touching.push(`${chalk18.cyanBright(username)} (you)`);
   }
   for (const cw of coworkers) {
     if (cw.staleness === "offline") continue;
@@ -4449,31 +4731,31 @@ var whoCommand = new Command26("who").description("Check who is working on a spe
       (f) => f === targetPath || f.startsWith(targetPath)
     );
     if (match) {
-      touching.push(chalk17.yellow(cw.presence.username));
+      touching.push(chalk18.yellow(cw.presence.username));
     }
   }
   if (touching.length === 0) {
-    console.log(chalk17.dim(`  No one is currently working on ${targetPath}`));
+    console.log(chalk18.dim(`  No one is currently working on ${targetPath}`));
   } else {
-    console.log(`  ${chalk17.bold(targetPath)}: ${touching.join(", ")}`);
+    console.log(`  ${chalk18.bold(targetPath)}: ${touching.join(", ")}`);
     if (touching.length > 1) {
-      console.log(chalk17.red("  \u26A0 Multiple people touching this path - coordinate!"));
+      console.log(chalk18.red("  \u26A0 Multiple people touching this path - coordinate!"));
     }
   }
 });
 
 // src/team/commands/offline.ts
-import chalk18 from "chalk";
-import { Command as Command27 } from "commander";
-var offlineCommand = new Command27("offline").description("Mark yourself as offline (removes your presence file)").action(() => {
+import chalk19 from "chalk";
+import { Command as Command28 } from "commander";
+var offlineCommand = new Command28("offline").description("Mark yourself as offline (removes your presence file)").action(() => {
   const username = getUsername();
   goOffline();
-  console.log(chalk18.dim(`  ${username} marked as offline. Presence file removed.`));
+  console.log(chalk19.dim(`  ${username} marked as offline. Presence file removed.`));
 });
 
 // src/team/commands/msg.ts
-import chalk19 from "chalk";
-import { Command as Command28 } from "commander";
+import chalk20 from "chalk";
+import { Command as Command29 } from "commander";
 function getCloudConfig() {
   try {
     const config = readCloudConfig();
@@ -4492,16 +4774,16 @@ function formatAge2(iso) {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
-var msgCommand2 = new Command28("msg").description("Send or read team messages").argument("[message]", "Message to send (omit to read recent messages)").action(async (message) => {
+var msgCommand2 = new Command29("msg").description("Send or read team messages").argument("[message]", "Message to send (omit to read recent messages)").action(async (message) => {
   const cfg = getCloudConfig();
   if (!cfg) {
-    console.log(chalk19.red("  Cloud not linked. Run: vf cloud login && vf cloud link"));
+    console.log(chalk20.red("  Cloud not linked. Run: vf cloud login && vf cloud link"));
     return;
   }
   if (message) {
     const trimmed = message.trim();
     if (trimmed.length === 0 || trimmed.length > 500) {
-      console.log(chalk19.red("  Message must be 1-500 characters."));
+      console.log(chalk20.red("  Message must be 1-500 characters."));
       return;
     }
     const result = await supabaseInsert("messages", {
@@ -4510,10 +4792,10 @@ var msgCommand2 = new Command28("msg").description("Send or read team messages")
       body: trimmed
     });
     if (result.success) {
-      console.log(chalk19.green("  \u2713 Message sent to team"));
+      console.log(chalk20.green("  \u2713 Message sent to team"));
       fireDiscordEvent({ type: "message", message: trimmed });
     } else {
-      console.log(chalk19.red(`  Failed to send: ${result.error}`));
+      console.log(chalk20.red(`  Failed to send: ${result.error}`));
     }
   } else {
     const params = [
@@ -4524,85 +4806,85 @@ var msgCommand2 = new Command28("msg").description("Send or read team messages")
     ].join("&");
     const result = await supabaseQuery("messages", params);
     if (!result.success) {
-      console.log(chalk19.red(`  Failed to fetch messages: ${result.error}`));
+      console.log(chalk20.red(`  Failed to fetch messages: ${result.error}`));
       return;
     }
     if (result.data.length === 0) {
-      console.log(chalk19.dim("  No team messages yet."));
+      console.log(chalk20.dim("  No team messages yet."));
       return;
     }
-    console.log(chalk19.bold("\n  Team Messages (last 10)\n"));
+    console.log(chalk20.bold("\n  Team Messages (last 10)\n"));
     const msgs = [...result.data].reverse();
     const maxNameLen = Math.max(...msgs.map((m) => (m.profiles?.username || "?").length));
     for (const msg of msgs) {
       const name = (msg.profiles?.username || "?").padEnd(maxNameLen);
       const age = formatAge2(msg.created_at);
-      console.log(`  ${chalk19.cyanBright(name)}  ${msg.body}  ${chalk19.dim(age)}`);
+      console.log(`  ${chalk20.cyanBright(name)}  ${msg.body}  ${chalk20.dim(age)}`);
     }
     console.log("");
   }
 });
 
 // src/team/commands/discord.ts
-import { Command as Command29 } from "commander";
-import chalk20 from "chalk";
-var discordCommand = new Command29("discord").description("Configure Discord webhook for team notifications").argument("[webhook-url]", "Discord webhook URL (omit to show status)").option("--off", "Disable Discord notifications").action(async (webhookUrl, opts) => {
+import { Command as Command30 } from "commander";
+import chalk21 from "chalk";
+var discordCommand = new Command30("discord").description("Configure Discord webhook for team notifications").argument("[webhook-url]", "Discord webhook URL (omit to show status)").option("--off", "Disable Discord notifications").action(async (webhookUrl, opts) => {
   if (!isTeamInitialized()) {
-    console.log(chalk20.red("  Team not initialized. Run: vf team init --user <name>"));
+    console.log(chalk21.red("  Team not initialized. Run: vf team init --user <name>"));
     return;
   }
   const config = readTeamConfig();
   if (opts?.off) {
     if (!config.settings.discordWebhookUrl) {
-      console.log(chalk20.dim("  Discord notifications are already off."));
+      console.log(chalk21.dim("  Discord notifications are already off."));
       return;
     }
     delete config.settings.discordWebhookUrl;
     writeTeamConfig(config);
-    console.log(chalk20.green("  \u2713 Discord notifications disabled."));
+    console.log(chalk21.green("  \u2713 Discord notifications disabled."));
     return;
   }
   if (!webhookUrl) {
     if (config.settings.discordWebhookUrl) {
       const masked = config.settings.discordWebhookUrl.replace(/\/[\w-]+$/, "/****");
-      console.log(chalk20.green("  \u2713 Discord notifications enabled"));
-      console.log(chalk20.dim(`  Webhook: ${masked}`));
+      console.log(chalk21.green("  \u2713 Discord notifications enabled"));
+      console.log(chalk21.dim(`  Webhook: ${masked}`));
     } else {
-      console.log(chalk20.dim("  Discord notifications are off."));
-      console.log(chalk20.dim('  Run: vf team discord "https://discord.com/api/webhooks/..."'));
+      console.log(chalk21.dim("  Discord notifications are off."));
+      console.log(chalk21.dim('  Run: vf team discord "https://discord.com/api/webhooks/..."'));
     }
     return;
   }
   try {
     const url = new URL(webhookUrl);
     if (url.protocol !== "https:") {
-      console.log(chalk20.red("  Webhook URL must use HTTPS."));
+      console.log(chalk21.red("  Webhook URL must use HTTPS."));
       return;
     }
     if (!url.hostname.includes("discord.com") && !url.hostname.includes("discordapp.com")) {
-      console.log(chalk20.yellow("  Warning: URL does not look like a Discord webhook."));
-      console.log(chalk20.dim("  Expected: https://discord.com/api/webhooks/..."));
+      console.log(chalk21.yellow("  Warning: URL does not look like a Discord webhook."));
+      console.log(chalk21.dim("  Expected: https://discord.com/api/webhooks/..."));
     }
   } catch {
-    console.log(chalk20.red("  Invalid URL format."));
+    console.log(chalk21.red("  Invalid URL format."));
     return;
   }
-  console.log(chalk20.dim("  Testing webhook..."));
+  console.log(chalk21.dim("  Testing webhook..."));
   const ok = await testDiscordWebhook(webhookUrl, config.teamName);
   if (!ok) {
-    console.log(chalk20.red("  Webhook test failed. Check the URL and try again."));
+    console.log(chalk21.red("  Webhook test failed. Check the URL and try again."));
     return;
   }
   config.settings.discordWebhookUrl = webhookUrl;
   writeTeamConfig(config);
-  console.log(chalk20.green("  \u2713 Discord notifications enabled!"));
-  console.log(chalk20.dim("  A test message was sent to your channel."));
-  console.log(chalk20.dim("  Task events will now post automatically."));
+  console.log(chalk21.green("  \u2713 Discord notifications enabled!"));
+  console.log(chalk21.dim("  A test message was sent to your channel."));
+  console.log(chalk21.dim("  Task events will now post automatically."));
 });
 
 // src/team/register.ts
 function register(program2) {
-  const teamCmd = new Command30("team").description("Team collaboration commands");
+  const teamCmd = new Command31("team").description("Team collaboration commands");
   teamCmd.addCommand(initCommand2);
   teamCmd.addCommand(statusCommand2);
   teamCmd.addCommand(syncCommand);
@@ -4614,11 +4896,11 @@ function register(program2) {
 }
 
 // src/cloud/register.ts
-import { Command as Command42 } from "commander";
+import { Command as Command48 } from "commander";
 
 // src/cloud/commands/link.ts
-import { Command as Command31 } from "commander";
-var linkCommand = new Command31("link").description("Link this project to a vibeteamz project").argument("<project-id>", "vibeteamz project UUID").action(async (projectId) => {
+import { Command as Command32 } from "commander";
+var linkCommand = new Command32("link").description("Link this project to a vibeteamz project").argument("<project-id>", "vibeteamz project UUID").action(async (projectId) => {
   const id = String(projectId).trim().toLowerCase();
   if (!isValidUUID(id)) {
     error("Invalid project ID. Must be a valid UUID v4.");
@@ -4665,8 +4947,8 @@ var linkCommand = new Command31("link").description("Link this project to a vibe
 });
 
 // src/cloud/commands/unlink.ts
-import { Command as Command32 } from "commander";
-var unlinkCommand = new Command32("unlink").description("Remove the vibeteamz project link (stops heartbeats)").action(() => {
+import { Command as Command33 } from "commander";
+var unlinkCommand = new Command33("unlink").description("Remove the vibeteamz project link (stops heartbeats)").action(() => {
   const config = readCloudConfig();
   if (!config.projectId) {
     info("No project linked.");
@@ -4680,9 +4962,9 @@ var unlinkCommand = new Command32("unlink").description("Remove the vibeteamz pr
 });
 
 // src/cloud/commands/status.ts
-import { Command as Command33 } from "commander";
-import chalk21 from "chalk";
-var statusCommand3 = new Command33("status").description("Show cloud connection status").option("--ping", "Send a test heartbeat to verify connectivity").action(async (opts) => {
+import { Command as Command34 } from "commander";
+import chalk22 from "chalk";
+var statusCommand3 = new Command34("status").description("Show cloud connection status").option("--ping", "Send a test heartbeat to verify connectivity").action(async (opts) => {
   let config;
   try {
     config = readCloudConfig();
@@ -4690,18 +4972,18 @@ var statusCommand3 = new Command33("status").description("Show cloud connection 
     error('Cloud config is corrupted. Re-run "vf cloud login".');
     return;
   }
-  console.log(chalk21.bold("Cloud Status"));
+  console.log(chalk22.bold("Cloud Status"));
   console.log("");
   console.log(`  API URL:      ${config.apiUrl}`);
-  console.log(`  Supabase:     ${config.supabaseUrl ?? chalk21.dim("not set")}`);
-  console.log(`  Logged in:    ${config.userId ? chalk21.green("yes") : chalk21.red("no")}`);
-  console.log(`  Project:      ${config.projectId ?? chalk21.dim("not linked")}`);
+  console.log(`  Supabase:     ${config.supabaseUrl ?? chalk22.dim("not set")}`);
+  console.log(`  Logged in:    ${config.userId ? chalk22.green("yes") : chalk22.red("no")}`);
+  console.log(`  Project:      ${config.projectId ?? chalk22.dim("not linked")}`);
   if (config.linkedAt) {
     console.log(`  Linked at:    ${config.linkedAt}`);
   }
   if (opts.ping) {
     console.log("");
-    if (!config.accessToken || !config.userId || !config.projectId) {
+    if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
       error("Cannot ping: not fully configured (need login + link).");
       return;
     }
@@ -4725,19 +5007,19 @@ var statusCommand3 = new Command33("status").description("Show cloud connection 
 });
 
 // src/cloud/commands/team.ts
-import { Command as Command34 } from "commander";
-import chalk22 from "chalk";
-var g5 = chalk22.green;
-var gB5 = chalk22.greenBright;
-var y5 = chalk22.yellow;
-var r4 = chalk22.red;
-var d4 = chalk22.dim;
+import { Command as Command35 } from "commander";
+import chalk23 from "chalk";
+var g6 = chalk23.green;
+var gB6 = chalk23.greenBright;
+var y6 = chalk23.yellow;
+var r4 = chalk23.red;
+var d5 = chalk23.dim;
 function presenceIcon(status) {
   switch (status) {
     case "active":
-      return gB5("\u25CF");
+      return gB6("\u25CF");
     case "idle":
-      return y5("\u25D0");
+      return y6("\u25D0");
     case "away":
       return r4("\u25CB");
   }
@@ -4745,9 +5027,9 @@ function presenceIcon(status) {
 function presenceColor(status) {
   switch (status) {
     case "active":
-      return gB5;
+      return gB6;
     case "idle":
-      return y5;
+      return y6;
     case "away":
       return r4;
   }
@@ -4769,7 +5051,7 @@ function formatAge3(lastHeartbeat) {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
-var teamCommand = new Command34("team").description("Show who is online in your vibeteamz project").action(async () => {
+var teamCommand = new Command35("team").description("Show who is online in your vibeteamz project").action(async () => {
   let config;
   try {
     config = readCloudConfig();
@@ -4777,8 +5059,8 @@ var teamCommand = new Command34("team").description("Show who is online in your 
     error('Cloud config is corrupted. Re-run "vf cloud login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
-    error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
   if (!isValidUUID(config.projectId)) {
@@ -4801,31 +5083,31 @@ var teamCommand = new Command34("team").description("Show who is online in your 
     }
   }
   const order = { active: 0, idle: 1, away: 2 };
-  online.sort((a, b5) => order[a.presence] - order[b5.presence]);
+  online.sort((a, b6) => order[a.presence] - order[b6.presence]);
   console.log("");
   if (online.length === 0) {
-    console.log(d4("  No teammates online."));
+    console.log(d5("  No teammates online."));
     console.log("");
     info('Use "vf cloud pull" for the full project dashboard.');
     return;
   }
-  console.log(gB5("  ONLINE") + d4(" (vibeteamz)"));
+  console.log(gB6("  ONLINE") + d5(" (vibeteamz)"));
   for (const row of online) {
     const username = row.profiles?.username ?? row.user_id.slice(0, 8);
     const icon = presenceIcon(row.presence);
     const color = presenceColor(row.presence);
     const nameStr = color(username.padEnd(12));
     const statusStr = color(row.presence.padEnd(8));
-    const taskStr = row.task_id ? (chalk22.bold(row.task_id) + ": " + (row.task_title ?? "").slice(0, 20)).padEnd(28) : d4("\u2014".padEnd(28));
-    const pctStr = row.progress_total > 0 ? `${Math.round(row.progress_met / row.progress_total * 100)}%`.padEnd(6) : d4("\u2014".padEnd(6));
+    const taskStr = row.task_id ? (chalk23.bold(row.task_id) + ": " + (row.task_title ?? "").slice(0, 20)).padEnd(28) : d5("\u2014".padEnd(28));
+    const pctStr = row.progress_total > 0 ? `${Math.round(row.progress_met / row.progress_total * 100)}%`.padEnd(6) : d5("\u2014".padEnd(6));
     const ageStr = formatAge3(row.last_heartbeat);
-    console.log(`  ${icon} ${nameStr}${statusStr}${taskStr}${pctStr}${d4(ageStr)}`);
+    console.log(`  ${icon} ${nameStr}${statusStr}${taskStr}${pctStr}${d5(ageStr)}`);
   }
   const counts = { active: 0, idle: 0, away: 0 };
   for (const row of online) counts[row.presence]++;
   const parts = [];
-  if (counts.active > 0) parts.push(`${counts.active} ${g5("active")}`);
-  if (counts.idle > 0) parts.push(`${counts.idle} ${y5("idle")}`);
+  if (counts.active > 0) parts.push(`${counts.active} ${g6("active")}`);
+  if (counts.idle > 0) parts.push(`${counts.idle} ${y6("idle")}`);
   if (counts.away > 0) parts.push(`${counts.away} ${r4("away")}`);
   console.log("");
   console.log(`  ${parts.join(", ")}`);
@@ -4833,9 +5115,9 @@ var teamCommand = new Command34("team").description("Show who is online in your 
   const suggestions = cache?.suggestions;
   if (suggestions && suggestions.length > 0) {
     console.log("");
-    console.log(d4("  SUGGESTIONS"));
+    console.log(d5("  SUGGESTIONS"));
     for (const s of suggestions) {
-      const icon = s.urgency === "high" ? r4("\u25CF") : s.urgency === "medium" ? y5("\u25CF") : g5("\u25CF");
+      const icon = s.urgency === "high" ? r4("\u25CF") : s.urgency === "medium" ? y6("\u25CF") : g6("\u25CF");
       console.log(`  ${icon} ${s.message}`);
     }
   }
@@ -4843,17 +5125,30 @@ var teamCommand = new Command34("team").description("Show who is online in your 
 });
 
 // src/cloud/commands/pull.ts
-import { Command as Command35 } from "commander";
-import chalk23 from "chalk";
-var g6 = chalk23.green;
-var gB6 = chalk23.greenBright;
-var gD5 = chalk23.dim.green;
-var c5 = chalk23.cyan;
-var cB5 = chalk23.cyanBright;
-var y6 = chalk23.yellow;
-var r5 = chalk23.red;
-var d5 = chalk23.dim;
-var b4 = chalk23.bold;
+import { Command as Command36 } from "commander";
+import chalk24 from "chalk";
+async function apiFetch(baseUrl, path13, token) {
+  try {
+    const res = await fetch(`${baseUrl}${path13}`, {
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(8e3)
+    });
+    if (!res.ok) return { success: false };
+    const data = await res.json();
+    return { success: true, data };
+  } catch {
+    return { success: false };
+  }
+}
+var g7 = chalk24.green;
+var gB7 = chalk24.greenBright;
+var gD6 = chalk24.dim.green;
+var c6 = chalk24.cyan;
+var cB6 = chalk24.cyanBright;
+var y7 = chalk24.yellow;
+var r5 = chalk24.red;
+var d6 = chalk24.dim;
+var b5 = chalk24.bold;
 function classifyPresence2(lastHeartbeat) {
   const ageMs = Date.now() - new Date(lastHeartbeat).getTime();
   const minutes = ageMs / 6e4;
@@ -4865,9 +5160,9 @@ function classifyPresence2(lastHeartbeat) {
 function presenceIcon2(status) {
   switch (status) {
     case "active":
-      return gB6("\u25CF");
+      return gB7("\u25CF");
     case "idle":
-      return y6("\u25D0");
+      return y7("\u25D0");
     case "away":
       return r5("\u25CB");
   }
@@ -4875,9 +5170,9 @@ function presenceIcon2(status) {
 function presenceColor2(status) {
   switch (status) {
     case "active":
-      return gB6;
+      return gB7;
     case "idle":
-      return y6;
+      return y7;
     case "away":
       return r5;
   }
@@ -4891,28 +5186,28 @@ function formatAge4(isoStr) {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
-function hLine4(char, width) {
+function hLine5(char, width) {
   return char.repeat(width);
 }
 function boxTop5(w) {
-  return gD5("\u2554" + hLine4("\u2550", w - 2) + "\u2557");
+  return gD6("\u2554" + hLine5("\u2550", w - 2) + "\u2557");
 }
 function boxBot5(w) {
-  return gD5("\u255A" + hLine4("\u2550", w - 2) + "\u255D");
+  return gD6("\u255A" + hLine5("\u2550", w - 2) + "\u255D");
 }
 function boxRow5(content, w) {
   const visible = content.replace(/\x1b\[[0-9;]*m/g, "");
   const pad = Math.max(0, w - 4 - visible.length);
-  return gD5("\u2551") + " " + content + " ".repeat(pad) + " " + gD5("\u2551");
+  return gD6("\u2551") + " " + content + " ".repeat(pad) + " " + gD6("\u2551");
 }
 function boxEmpty5(w) {
-  return gD5("\u2551") + " ".repeat(w - 2) + gD5("\u2551");
+  return gD6("\u2551") + " ".repeat(w - 2) + gD6("\u2551");
 }
 function sectionHeader4(label, w) {
   const remaining = w - 6 - label.length - 4;
-  return gD5("\u2560\u2500\u2500") + " " + gB6(label) + " " + gD5(hLine4("\u2500", Math.max(1, remaining)) + "\u2563");
+  return gD6("\u2560\u2500\u2500") + " " + gB7(label) + " " + gD6(hLine5("\u2500", Math.max(1, remaining)) + "\u2563");
 }
-var pullCommand = new Command35("pull").description("Show full project dashboard from vibeteamz").option("--json", "Output as JSON").action(async (opts) => {
+var pullCommand = new Command36("pull").description("Show full project dashboard from vibeteamz").option("--json", "Output as JSON").action(async (opts) => {
   let config;
   try {
     config = readCloudConfig();
@@ -4920,8 +5215,8 @@ var pullCommand = new Command35("pull").description("Show full project dashboard
     error('Cloud config is corrupted. Re-run "vf cloud login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
-    error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
   if (!isValidUUID(config.projectId)) {
@@ -4929,7 +5224,9 @@ var pullCommand = new Command35("pull").description("Show full project dashboard
     return;
   }
   const pid = config.projectId;
-  const [membersResult, presenceResult, activityResult, sessionsResult] = await Promise.all([
+  const token = config.apiKey ?? config.accessToken ?? "";
+  const baseUrl = config.apiUrl;
+  const [membersResult, presenceResult, activityResult, sessionsResult, tasksApiResult, msApiResult] = await Promise.all([
     supabaseQuery(
       "members",
       `project_id=eq.${pid}&select=user_id,role,joined_at,profiles(username,display_name,availability,score,streak_days)&order=joined_at.asc`
@@ -4945,14 +5242,20 @@ var pullCommand = new Command35("pull").description("Show full project dashboard
     supabaseQuery(
       "sessions",
       `project_id=eq.${pid}&select=id,started_by,started_at,ended_at,participants&order=started_at.desc&limit=5`
-    )
+    ),
+    apiFetch(baseUrl, `/api/projects/${pid}/tasks`, token),
+    apiFetch(baseUrl, `/api/projects/${pid}/milestones`, token)
   ]);
+  const tasksResult = tasksApiResult.success ? { success: true, data: tasksApiResult.data } : { success: false, data: [] };
+  const milestonesResult = msApiResult.success ? { success: true, data: Array.isArray(msApiResult.data) ? msApiResult.data : msApiResult.data.milestones ?? [] } : { success: false, data: [] };
   if (opts.json) {
     console.log(JSON.stringify({
       members: membersResult.success ? membersResult.data : [],
       presence: presenceResult.success ? presenceResult.data : [],
       activity: activityResult.success ? activityResult.data : [],
-      sessions: sessionsResult.success ? sessionsResult.data : []
+      sessions: sessionsResult.success ? sessionsResult.data : [],
+      tasks: tasksResult.success ? tasksResult.data : [],
+      milestones: milestonesResult.success ? milestonesResult.data : []
     }, null, 2));
     return;
   }
@@ -4961,7 +5264,7 @@ var pullCommand = new Command35("pull").description("Show full project dashboard
   lines.push("");
   lines.push(boxTop5(W2));
   lines.push(boxRow5(
-    gB6("CLOUD") + d5("://") + c5("vibeteamz") + d5(" > ") + cB5("PROJECT DASHBOARD"),
+    gB7("CLOUD") + d6("://") + c6("vibeteamz") + d6(" > ") + cB6("PROJECT DASHBOARD"),
     W2
   ));
   lines.push(sectionHeader4("TEAM MEMBERS", W2));
@@ -4969,19 +5272,19 @@ var pullCommand = new Command35("pull").description("Show full project dashboard
   if (membersResult.success && membersResult.data.length > 0) {
     for (const m of membersResult.data) {
       const username = m.profiles?.username ?? m.user_id.slice(0, 8);
-      const role = d5(m.role.padEnd(8));
+      const role = d6(m.role.padEnd(8));
       const avail = m.profiles?.availability ?? "unknown";
-      const availColor = avail === "available" ? g6 : avail === "busy" ? y6 : d5;
+      const availColor = avail === "available" ? g7 : avail === "busy" ? y7 : d6;
       const availStr = availColor(avail.padEnd(14));
       const score = String(m.profiles?.score ?? 0).padEnd(7);
       const streak = m.profiles?.streak_days ? `${m.profiles.streak_days}d streak` : "";
       lines.push(boxRow5(
-        "   " + gB6("\u25CF") + " " + cB5(username.padEnd(12)) + role + availStr + score + d5(streak),
+        "   " + gB7("\u25CF") + " " + cB6(username.padEnd(12)) + role + availStr + score + d6(streak),
         W2
       ));
     }
   } else {
-    lines.push(boxRow5(d5("   No members found."), W2));
+    lines.push(boxRow5(d6("   No members found."), W2));
   }
   lines.push(sectionHeader4("ONLINE NOW", W2));
   lines.push(boxEmpty5(W2));
@@ -4995,26 +5298,82 @@ var pullCommand = new Command35("pull").description("Show full project dashboard
     }
     if (onlineRows.length > 0) {
       const order = { active: 0, idle: 1, away: 2 };
-      onlineRows.sort((a, b5) => order[a.ps] - order[b5.ps]);
+      onlineRows.sort((a, b6) => order[a.ps] - order[b6.ps]);
       for (const row of onlineRows) {
         const username = row.profiles?.username ?? row.user_id.slice(0, 8);
         const icon = presenceIcon2(row.ps);
         const color = presenceColor2(row.ps);
         const nameStr = color(username.padEnd(12));
         const statusStr = color(row.ps.padEnd(8));
-        const taskStr = row.task_id ? (b4(row.task_id) + ": " + (row.task_title ?? "").slice(0, 16)).padEnd(24) : d5("\u2014".padEnd(24));
-        const pctStr = row.progress_total > 0 ? `${Math.round(row.progress_met / row.progress_total * 100)}%`.padEnd(6) : d5("\u2014".padEnd(6));
+        const taskStr = row.task_id ? (b5(row.task_id) + ": " + (row.task_title ?? "").slice(0, 16)).padEnd(24) : d6("\u2014".padEnd(24));
+        const pctStr = row.progress_total > 0 ? `${Math.round(row.progress_met / row.progress_total * 100)}%`.padEnd(6) : d6("\u2014".padEnd(6));
         const ageStr = formatAge4(row.last_heartbeat);
         lines.push(boxRow5(
-          "   " + icon + " " + nameStr + statusStr + taskStr + pctStr + d5(ageStr),
+          "   " + icon + " " + nameStr + statusStr + taskStr + pctStr + d6(ageStr),
           W2
         ));
       }
     } else {
-      lines.push(boxRow5(d5("   No teammates online."), W2));
+      lines.push(boxRow5(d6("   No teammates online."), W2));
     }
   } else {
-    lines.push(boxRow5(d5("   No presence data."), W2));
+    lines.push(boxRow5(d6("   No presence data."), W2));
+  }
+  lines.push(sectionHeader4("TASKS", W2));
+  lines.push(boxEmpty5(W2));
+  if (tasksResult.success && tasksResult.data.length > 0) {
+    const allTasks = tasksResult.data;
+    const milestones = milestonesResult.success ? milestonesResult.data : [];
+    const msMap = /* @__PURE__ */ new Map();
+    for (const ms of milestones) msMap.set(ms.id, ms);
+    const byMilestone = /* @__PURE__ */ new Map();
+    for (const t of allTasks) {
+      const key = t.milestone_id;
+      if (!byMilestone.has(key)) byMilestone.set(key, []);
+      byMilestone.get(key).push(t);
+    }
+    const msKeys = [...byMilestone.keys()].sort((a, b6) => {
+      if (a === null) return 1;
+      if (b6 === null) return -1;
+      return 0;
+    });
+    for (const msId of msKeys) {
+      const groupTasks = byMilestone.get(msId);
+      const doneCount = groupTasks.filter((t) => t.status === "done").length;
+      const total = groupTasks.length;
+      const pct = total > 0 ? Math.round(doneCount / total * 100) : 0;
+      const msTitle = msId ? msMap.get(msId)?.title ?? msId.slice(0, 8) : "Backlog";
+      const msIcon = msId ? y7("\u25C9") : d6("\u2261");
+      const progressWidth = 16;
+      const filled = total > 0 ? Math.round(doneCount / total * progressWidth) : 0;
+      const bar = y7("\u2588".repeat(filled)) + d6("\u2591".repeat(progressWidth - filled));
+      const statsStr = d6(`${doneCount}/${total}`) + " " + (pct > 0 ? y7(`${pct}%`) : d6("0%"));
+      lines.push(boxRow5(
+        "   " + msIcon + " " + b5(msTitle.padEnd(24)) + bar + " " + statsStr,
+        W2
+      ));
+      const openTasks = groupTasks.filter((t) => t.status !== "done");
+      for (const t of openTasks) {
+        const icon = t.status === "in_progress" ? c6("\u25D0") : chalk24.white("\u25CB");
+        const title = t.title.length > 36 ? t.title.slice(0, 33) + "..." : t.title;
+        const owner = t.assigned_to === config.userId ? d6("@you") : t.assigned_to ? d6(t.assigned_to.slice(0, 8)) : d6("");
+        lines.push(boxRow5(
+          "      " + icon + " " + title.padEnd(38) + owner,
+          W2
+        ));
+      }
+      lines.push(boxEmpty5(W2));
+    }
+    const totalAll = allTasks.length;
+    const totalDone = allTasks.filter((t) => t.status === "done").length;
+    const totalActive = allTasks.filter((t) => t.status === "in_progress").length;
+    const parts = [];
+    parts.push(`${totalDone}/${totalAll} done`);
+    if (totalActive > 0) parts.push(c6(`${totalActive} active`));
+    if (milestones.length > 0) parts.push(`${milestones.length} milestone${milestones.length > 1 ? "s" : ""}`);
+    lines.push(boxRow5(d6("   " + parts.join(" \xB7 ")), W2));
+  } else {
+    lines.push(boxRow5(d6("   No tasks."), W2));
   }
   lines.push(sectionHeader4("RECENT ACTIVITY", W2));
   lines.push(boxEmpty5(W2));
@@ -5025,12 +5384,12 @@ var pullCommand = new Command35("pull").description("Show full project dashboard
       const age = formatAge4(a.created_at);
       const msgTrimmed = msg.length > 38 ? msg.slice(0, 35) + "..." : msg;
       lines.push(boxRow5(
-        "   " + cB5(username.padEnd(8)) + d5(msgTrimmed.padEnd(40)) + d5(age),
+        "   " + cB6(username.padEnd(8)) + d6(msgTrimmed.padEnd(40)) + d6(age),
         W2
       ));
     }
   } else {
-    lines.push(boxRow5(d5("   No recent activity."), W2));
+    lines.push(boxRow5(d6("   No recent activity."), W2));
   }
   if (sessionsResult.success && sessionsResult.data.length > 0) {
     const activeSessions = sessionsResult.data.filter((s) => !s.ended_at);
@@ -5041,7 +5400,7 @@ var pullCommand = new Command35("pull").description("Show full project dashboard
         const started = formatAge4(s.started_at);
         const participants = Array.isArray(s.participants) ? s.participants.length : 0;
         lines.push(boxRow5(
-          "   " + g6("\u25B6") + d5(` Started ${started}`) + d5(` \xB7 ${participants} participant${participants !== 1 ? "s" : ""}`),
+          "   " + g7("\u25B6") + d6(` Started ${started}`) + d6(` \xB7 ${participants} participant${participants !== 1 ? "s" : ""}`),
           W2
         ));
       }
@@ -5054,8 +5413,8 @@ var pullCommand = new Command35("pull").description("Show full project dashboard
 });
 
 // src/cloud/commands/push.ts
-import { Command as Command36 } from "commander";
-var pushCommand = new Command36("push").description("Post a message to your vibeteamz project team chat").argument("<message>", "Message to post").action(async (message) => {
+import { Command as Command37 } from "commander";
+var pushCommand = new Command37("push").description("Post a message to your vibeteamz project team chat").argument("<message>", "Message to post").action(async (message) => {
   let config;
   try {
     config = readCloudConfig();
@@ -5063,8 +5422,8 @@ var pushCommand = new Command36("push").description("Post a message to your vibe
     error('Cloud config is corrupted. Re-run "vf cloud login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
-    error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
   if (!isValidUUID(config.projectId) || !isValidUUID(config.userId)) {
@@ -5076,7 +5435,7 @@ var pushCommand = new Command36("push").description("Post a message to your vibe
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.accessToken}`
+        "Authorization": `Bearer ${config.apiKey ?? config.accessToken}`
       },
       body: JSON.stringify({
         project_id: config.projectId,
@@ -5101,8 +5460,8 @@ var pushCommand = new Command36("push").description("Post a message to your vibe
 });
 
 // src/cloud/commands/msg.ts
-import { Command as Command37 } from "commander";
-var msgCommand3 = new Command37("msg").description("Send a message to your project team chat").argument("<message>", "Message to send").action(async (message) => {
+import { Command as Command38 } from "commander";
+var msgCommand3 = new Command38("msg").description("Send a message to your project team chat").argument("<message>", "Message to send").option("--to <usernames...>", "Mention users (auto-adds @ prefix)").option("--reply <message-id>", "Reply to a message").action(async (message, opts) => {
   let config;
   try {
     config = readCloudConfig();
@@ -5110,7 +5469,7 @@ var msgCommand3 = new Command37("msg").description("Send a message to your proje
     error('Cloud config is corrupted. Re-run "vf vibeteamz login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
     error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
@@ -5118,17 +5477,24 @@ var msgCommand3 = new Command37("msg").description("Send a message to your proje
     error("Invalid IDs in cloud config.");
     return;
   }
+  let finalMessage = message;
+  if (opts.to?.length) {
+    const mentionPrefix = opts.to.map((u) => `@${u.replace(/^@/, "")}`).join(" ");
+    finalMessage = `${mentionPrefix} ${message}`;
+  }
   try {
+    const token = config.apiKey ?? config.accessToken;
     const res = await fetch(`${config.apiUrl}/api/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.accessToken}`
+        "Authorization": `Bearer ${token}`
       },
       body: JSON.stringify({
         project_id: config.projectId,
         user_id: config.userId,
-        body: message
+        body: finalMessage,
+        reply_to: opts.reply || null
       }),
       signal: AbortSignal.timeout(1e4)
     });
@@ -5148,8 +5514,8 @@ var msgCommand3 = new Command37("msg").description("Send a message to your proje
 });
 
 // src/cloud/commands/milestone.ts
-import { Command as Command38 } from "commander";
-var milestoneCommand = new Command38("milestone").description("Create a milestone in your project").argument("<title>", "Milestone title").option("--description <text>", "Milestone description").option("--due <date>", "Due date (YYYY-MM-DD)").action(async (title, opts) => {
+import { Command as Command39 } from "commander";
+var milestoneCommand = new Command39("milestone").description("Create a milestone in your project").argument("<title>", "Milestone title").option("--description <text>", "Milestone description").option("--due <date>", "Due date (YYYY-MM-DD)").action(async (title, opts) => {
   let config;
   try {
     config = readCloudConfig();
@@ -5157,7 +5523,7 @@ var milestoneCommand = new Command38("milestone").description("Create a mileston
     error('Cloud config is corrupted. Re-run "vf vibeteamz login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
     error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
@@ -5170,7 +5536,7 @@ var milestoneCommand = new Command38("milestone").description("Create a mileston
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.accessToken}`
+        "Authorization": `Bearer ${config.apiKey ?? config.accessToken}`
       },
       body: JSON.stringify({
         title,
@@ -5196,15 +5562,15 @@ var milestoneCommand = new Command38("milestone").description("Create a mileston
 });
 
 // src/cloud/commands/milestones.ts
-import { Command as Command39 } from "commander";
-import chalk24 from "chalk";
+import { Command as Command40 } from "commander";
+import chalk25 from "chalk";
 function progressBar3(pct, width = 20) {
   const filled = Math.round(pct / 100 * width);
   const empty = width - filled;
-  const color = pct >= 100 ? chalk24.greenBright : pct >= 50 ? chalk24.yellow : chalk24.red;
-  return color("\u2593".repeat(filled)) + chalk24.dim("\u2591".repeat(empty));
+  const color = pct >= 100 ? chalk25.greenBright : pct >= 50 ? chalk25.yellow : chalk25.red;
+  return color("\u2593".repeat(filled)) + chalk25.dim("\u2591".repeat(empty));
 }
-var milestonesCommand = new Command39("milestones").description("List milestones with progress").action(async () => {
+var milestonesCommand = new Command40("milestones").description("List milestones with progress").action(async () => {
   let config;
   try {
     config = readCloudConfig();
@@ -5234,7 +5600,7 @@ var milestonesCommand = new Command39("milestones").description("List milestones
     }
     const { milestones } = await res.json();
     if (milestones.length === 0) {
-      console.log(chalk24.dim('  No milestones yet. Create one: vf vibeteamz milestone "Title"'));
+      console.log(chalk25.dim('  No milestones yet. Create one: vf vibeteamz milestone "Title"'));
       return;
     }
     console.log("");
@@ -5242,10 +5608,10 @@ var milestonesCommand = new Command39("milestones").description("List milestones
       const total = ms.tasks.length;
       const done = ms.tasks.filter((t) => t.status === "done").length;
       const pct = total > 0 ? Math.round(done / total * 100) : 0;
-      const statusIcon2 = ms.status === "completed" ? chalk24.green("\u2713") : ms.status === "in_progress" ? chalk24.cyan("\u25B6") : chalk24.dim("\u25CB");
-      const dueStr = ms.due_date ? chalk24.dim(` due ${ms.due_date}`) : "";
-      console.log(`  ${statusIcon2} ${chalk24.bold(ms.title)}${dueStr}`);
-      console.log(`    ${progressBar3(pct)} ${pct}%  ${chalk24.dim(`${done}/${total} tasks`)}  ${chalk24.dim(ms.id.slice(0, 8))}`);
+      const statusIcon2 = ms.status === "completed" ? chalk25.green("\u2713") : ms.status === "in_progress" ? chalk25.cyan("\u25B6") : chalk25.dim("\u25CB");
+      const dueStr = ms.due_date ? chalk25.dim(` due ${ms.due_date}`) : "";
+      console.log(`  ${statusIcon2} ${chalk25.bold(ms.title)}${dueStr}`);
+      console.log(`    ${progressBar3(pct)} ${pct}%  ${chalk25.dim(`${done}/${total} tasks`)}  ${chalk25.dim(ms.id.slice(0, 8))}`);
       console.log("");
     }
   } catch (e) {
@@ -5258,8 +5624,8 @@ var milestonesCommand = new Command39("milestones").description("List milestones
 });
 
 // src/cloud/commands/note.ts
-import { Command as Command40 } from "commander";
-var noteCommand2 = new Command40("note").description("Post a note to project activity feed").argument("<text>", "Note text").action(async (text) => {
+import { Command as Command41 } from "commander";
+var noteCommand2 = new Command41("note").description("Post a note to project activity feed").argument("<text>", "Note text").action(async (text) => {
   let config;
   try {
     config = readCloudConfig();
@@ -5267,7 +5633,7 @@ var noteCommand2 = new Command40("note").description("Post a note to project act
     error('Cloud config is corrupted. Re-run "vf vibeteamz login".');
     return;
   }
-  if (!config.accessToken || !config.userId || !config.projectId) {
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
     error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
     return;
   }
@@ -5280,7 +5646,7 @@ var noteCommand2 = new Command40("note").description("Post a note to project act
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.accessToken}`
+        "Authorization": `Bearer ${config.apiKey ?? config.accessToken}`
       },
       body: JSON.stringify({
         project_id: config.projectId,
@@ -5305,39 +5671,39 @@ var noteCommand2 = new Command40("note").description("Post a note to project act
 });
 
 // src/cloud/commands/tasks.ts
-import { Command as Command41 } from "commander";
-import chalk25 from "chalk";
-var g7 = chalk25.green;
-var gB7 = chalk25.greenBright;
-var d6 = chalk25.dim;
+import { Command as Command42 } from "commander";
+import chalk26 from "chalk";
+var g8 = chalk26.green;
+var gB8 = chalk26.greenBright;
+var d7 = chalk26.dim;
 function statusIcon(status) {
   switch (status) {
     case "todo":
-      return chalk25.white("\u25CB");
+      return chalk26.white("\u25CB");
     case "in_progress":
-      return chalk25.cyan("\u25D0");
+      return chalk26.cyan("\u25D0");
     case "done":
-      return gB7("\u25CF");
+      return gB8("\u25CF");
     default:
-      return d6("\xB7");
+      return d7("\xB7");
   }
 }
 function statusLabel(status) {
   switch (status) {
     case "todo":
-      return chalk25.white("todo");
+      return chalk26.white("todo");
     case "in_progress":
-      return chalk25.cyan("active");
+      return chalk26.cyan("active");
     case "done":
-      return gB7("done");
+      return gB8("done");
     default:
-      return d6(status);
+      return d7(status);
   }
 }
 function getAuthToken(config) {
   return config.apiKey ?? config.accessToken;
 }
-async function apiFetch(config, path13, opts) {
+async function apiFetch2(config, path13, opts) {
   const token = getAuthToken(config);
   return fetch(`${config.apiUrl}${path13}`, {
     ...opts,
@@ -5349,7 +5715,7 @@ async function apiFetch(config, path13, opts) {
     signal: AbortSignal.timeout(1e4)
   });
 }
-var tasksCommand = new Command41("tasks").description("List project tasks").option("--mine", "Only show tasks assigned to you").option("--all", "Include completed tasks").action(async (opts) => {
+var tasksCommand = new Command42("tasks").description("List project tasks").option("--mine", "Only show tasks assigned to you").option("--all", "Include completed tasks").action(async (opts) => {
   let config;
   try {
     config = readCloudConfig();
@@ -5368,8 +5734,8 @@ var tasksCommand = new Command41("tasks").description("List project tasks").opti
   }
   try {
     const [tasksRes, msRes] = await Promise.all([
-      apiFetch(config, `/api/projects/${config.projectId}/tasks`),
-      apiFetch(config, `/api/projects/${config.projectId}/milestones`)
+      apiFetch2(config, `/api/projects/${config.projectId}/tasks`),
+      apiFetch2(config, `/api/projects/${config.projectId}/milestones`)
     ]);
     if (!tasksRes.ok) {
       const data = await tasksRes.json().catch(() => ({}));
@@ -5393,7 +5759,7 @@ var tasksCommand = new Command41("tasks").description("List project tasks").opti
     }
     console.log("");
     if (filtered.length === 0) {
-      console.log(d6("  No tasks found."));
+      console.log(d7("  No tasks found."));
       if (opts.mine) info("Try without --mine to see all project tasks.");
       console.log("");
       return;
@@ -5404,9 +5770,9 @@ var tasksCommand = new Command41("tasks").description("List project tasks").opti
       if (!byMilestone.has(key)) byMilestone.set(key, []);
       byMilestone.get(key).push(t);
     }
-    const msKeys = [...byMilestone.keys()].sort((a, b5) => {
+    const msKeys = [...byMilestone.keys()].sort((a, b6) => {
       if (a === null) return 1;
-      if (b5 === null) return -1;
+      if (b6 === null) return -1;
       return 0;
     });
     for (const msId of msKeys) {
@@ -5414,13 +5780,13 @@ var tasksCommand = new Command41("tasks").description("List project tasks").opti
       const groupTasks = byMilestone.get(msId);
       const done = groupTasks.filter((t) => t.status === "done").length;
       const total = groupTasks.length;
-      console.log(chalk25.bold(`  ${msTitle}`) + d6(` (${done}/${total})`));
+      console.log(chalk26.bold(`  ${msTitle}`) + d7(` (${done}/${total})`));
       for (const t of groupTasks) {
         const icon = statusIcon(t.status);
         const label = statusLabel(t.status).padEnd(16);
         const title = t.title.slice(0, 40).padEnd(42);
-        const assignee = t.assignee?.username ? d6(`@${t.assignee.username}`) : t.assigned_to === config.userId ? d6("@you") : d6("unassigned");
-        const idStr = d6(t.id.slice(0, 8));
+        const assignee = t.assignee?.username ? d7(`@${t.assignee.username}`) : t.assigned_to === config.userId ? d7("@you") : d7("unassigned");
+        const idStr = d7(t.id.slice(0, 8));
         console.log(`    ${icon} ${label}${title}${assignee}  ${idStr}`);
       }
       console.log("");
@@ -5430,8 +5796,8 @@ var tasksCommand = new Command41("tasks").description("List project tasks").opti
     const doneCount = filtered.filter((t) => t.status === "done").length;
     const parts = [];
     if (todoCount > 0) parts.push(`${todoCount} todo`);
-    if (activeCount > 0) parts.push(`${activeCount} ${chalk25.cyan("active")}`);
-    if (doneCount > 0) parts.push(`${doneCount} ${g7("done")}`);
+    if (activeCount > 0) parts.push(`${activeCount} ${chalk26.cyan("active")}`);
+    if (doneCount > 0) parts.push(`${doneCount} ${g8("done")}`);
     console.log(`  ${parts.join(", ")}`);
     console.log("");
   } catch (e) {
@@ -5446,7 +5812,7 @@ var tasksCommand = new Command41("tasks").description("List project tasks").opti
 async function resolveTaskId(config, shortId) {
   if (shortId.length >= 36) return shortId;
   try {
-    const res = await apiFetch(config, `/api/projects/${config.projectId}/tasks`);
+    const res = await apiFetch2(config, `/api/projects/${config.projectId}/tasks`);
     if (!res.ok) return null;
     const tasks = await res.json();
     const match = tasks.find((t) => t.id.startsWith(shortId));
@@ -5459,7 +5825,24 @@ async function resolveTaskId(config, shortId) {
     return null;
   }
 }
-var taskCommand = new Command41("task").description("Manage a specific task (claim, start, done, create)");
+async function resolveMilestoneId(config, shortId) {
+  if (shortId.length >= 36) return shortId;
+  try {
+    const res = await apiFetch2(config, `/api/projects/${config.projectId}/milestones`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    const milestones = Array.isArray(body) ? body : body.milestones ?? [];
+    const match = milestones.find((m) => m.id.startsWith(shortId));
+    if (!match) {
+      error(`No milestone found starting with "${shortId}". Run "vf vibeteamz milestones" to see IDs.`);
+      return null;
+    }
+    return match.id;
+  } catch {
+    return null;
+  }
+}
+var taskCommand = new Command42("task").description("Manage a specific task (claim, start, done, create)");
 taskCommand.command("claim <id>").description("Assign a task to yourself").action(async (taskId) => {
   let config;
   try {
@@ -5475,7 +5858,7 @@ taskCommand.command("claim <id>").description("Assign a task to yourself").actio
   const fullId = await resolveTaskId(config, taskId);
   if (!fullId) return;
   try {
-    const res = await apiFetch(config, `/api/tasks/${fullId}`, {
+    const res = await apiFetch2(config, `/api/tasks/${fullId}`, {
       method: "PATCH",
       body: JSON.stringify({ assigned_to: config.userId })
     });
@@ -5505,7 +5888,7 @@ taskCommand.command("start <id>").description("Start a task (set to in_progress 
   const fullId = await resolveTaskId(config, taskId);
   if (!fullId) return;
   try {
-    const res = await apiFetch(config, `/api/tasks/${fullId}`, {
+    const res = await apiFetch2(config, `/api/tasks/${fullId}`, {
       method: "PATCH",
       body: JSON.stringify({ status: "in_progress", assigned_to: config.userId })
     });
@@ -5535,7 +5918,7 @@ taskCommand.command("done <id>").description("Complete a task (set to done)").ac
   const fullId = await resolveTaskId(config, taskId);
   if (!fullId) return;
   try {
-    const res = await apiFetch(config, `/api/tasks/${fullId}`, {
+    const res = await apiFetch2(config, `/api/tasks/${fullId}`, {
       method: "PATCH",
       body: JSON.stringify({ status: "done" })
     });
@@ -5563,11 +5946,16 @@ taskCommand.command("create <title>").description("Create a new task").option("-
     return;
   }
   try {
-    const res = await apiFetch(config, `/api/projects/${config.projectId}/tasks`, {
+    let milestoneId = null;
+    if (opts.milestone) {
+      milestoneId = await resolveMilestoneId(config, opts.milestone);
+      if (!milestoneId) return;
+    }
+    const res = await apiFetch2(config, `/api/projects/${config.projectId}/tasks`, {
       method: "POST",
       body: JSON.stringify({
         title,
-        milestone_id: opts.milestone || null,
+        milestone_id: milestoneId,
         assigned_to: opts.assign || null
       })
     });
@@ -5582,10 +5970,674 @@ taskCommand.command("create <title>").description("Create a new task").option("-
     error("Failed to connect to vibeteamz.");
   }
 });
+taskCommand.command("detail <id>").description("View full task details including description").action(async (taskId) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error("Cloud not configured.");
+    return;
+  }
+  const fullId = await resolveTaskId(config, taskId);
+  if (!fullId) return;
+  try {
+    const [tasksRes, msRes] = await Promise.all([
+      apiFetch2(config, `/api/projects/${config.projectId}/tasks`),
+      apiFetch2(config, `/api/projects/${config.projectId}/milestones`)
+    ]);
+    if (!tasksRes.ok) {
+      error("Failed to fetch task details.");
+      return;
+    }
+    const tasks = await tasksRes.json();
+    const task = tasks.find((t) => t.id === fullId);
+    if (!task) {
+      error(`Task ${taskId} not found.`);
+      return;
+    }
+    let milestoneName = null;
+    if (task.milestone_id && msRes.ok) {
+      const msBody = await msRes.json();
+      const milestones = Array.isArray(msBody) ? msBody : msBody.milestones ?? [];
+      const ms = milestones.find((m) => m.id === task.milestone_id);
+      milestoneName = ms?.title ?? null;
+    }
+    console.log("");
+    console.log(`  ${statusIcon(task.status)} ${chalk26.bold(task.title)}`);
+    console.log("");
+    const rows = [];
+    rows.push(["Status", statusLabel(task.status)]);
+    rows.push(["Priority", task.priority === "normal" ? d7("normal") : chalk26.bold(task.priority)]);
+    if (task.assignee) {
+      rows.push(["Assigned to", `@${task.assignee.username}${task.assignee.display_name ? ` (${task.assignee.display_name})` : ""}`]);
+    } else {
+      rows.push(["Assigned to", d7("unassigned")]);
+    }
+    if (milestoneName) {
+      rows.push(["Milestone", milestoneName]);
+    }
+    if (task.due_date) {
+      const overdue = new Date(task.due_date) < /* @__PURE__ */ new Date() && task.status !== "done";
+      rows.push(["Due", overdue ? chalk26.red(task.due_date) : task.due_date]);
+    }
+    rows.push(["ID", d7(task.id)]);
+    for (const [label, value] of rows) {
+      console.log(`  ${d7(label.padEnd(14))}${value}`);
+    }
+    if (task.description) {
+      console.log("");
+      console.log(d7("  Description"));
+      for (const line of task.description.split("\n")) {
+        console.log(`  ${line}`);
+      }
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out.");
+    } else {
+      error("Failed to connect to vibeteamz.");
+    }
+  }
+});
+
+// src/cloud/commands/notifications.ts
+import { Command as Command43 } from "commander";
+import chalk27 from "chalk";
+var d8 = chalk27.dim;
+function typeIcon(type) {
+  switch (type) {
+    case "mention":
+      return chalk27.cyan("@");
+    case "task_assigned":
+      return chalk27.yellow("\u2192");
+    case "task_completed":
+      return chalk27.green("\u2713");
+    case "member_joined":
+      return chalk27.green("+");
+    case "milestone_completed":
+      return chalk27.magenta("\u2605");
+    default:
+      return d8("\xB7");
+  }
+}
+function timeAgo(ts) {
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 6e4);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+function getAuthToken2(config) {
+  return config.apiKey ?? config.accessToken;
+}
+var notificationsCommand = new Command43("notifications").description("List your notifications").option("--all", "Include read notifications").action(async (opts) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    error(`Cloud config error: ${msg}`);
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
+    return;
+  }
+  if (!isValidUUID(config.projectId)) {
+    error("Invalid project ID in cloud config.");
+    return;
+  }
+  try {
+    const token = getAuthToken2(config);
+    const res = await fetch(`${config.apiUrl}/api/notifications?project_id=${config.projectId}`, {
+      headers: {
+        "Authorization": `Bearer ${token}`
+      },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch notifications: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const { notifications, unread_count } = await res.json();
+    console.log("");
+    if (notifications.length === 0) {
+      console.log(d8("  No notifications."));
+      console.log("");
+      return;
+    }
+    const filtered = opts.all ? notifications : notifications.filter((n) => !n.read_at);
+    if (filtered.length === 0) {
+      console.log(d8("  No unread notifications."));
+      if (!opts.all) info("Use --all to see read notifications.");
+      console.log("");
+      return;
+    }
+    for (const n of filtered) {
+      const icon = typeIcon(n.type);
+      const actor = n.actor?.display_name || n.actor?.username || "someone";
+      const unread = !n.read_at ? chalk27.yellowBright(" \u25CF") : "";
+      const age = d8(timeAgo(n.created_at));
+      console.log(`  ${icon}${unread} ${chalk27.bold(actor)} ${n.title}  ${age}`);
+      if (n.body) {
+        console.log(`    ${d8(n.body.slice(0, 80))}`);
+      }
+    }
+    console.log("");
+    if (unread_count > 0) {
+      console.log(`  ${chalk27.yellowBright(unread_count)} unread`);
+    } else {
+      console.log(`  ${d8("All caught up")}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      error(`Failed to connect to vibeteamz: ${msg}`);
+    }
+  }
+});
+var readAllCommand = new Command43("read-all").description("Mark all notifications as read").action(async () => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error("Cloud not configured.");
+    return;
+  }
+  try {
+    const token = getAuthToken2(config);
+    const res = await fetch(`${config.apiUrl}/api/notifications/read-all`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({ project_id: config.projectId }),
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (res.ok) {
+      success("All notifications marked as read.");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed: ${data.error ?? `HTTP ${res.status}`}`);
+    }
+  } catch {
+    error("Failed to connect to vibeteamz.");
+  }
+});
+notificationsCommand.addCommand(readAllCommand);
+
+// src/cloud/commands/activity.ts
+import { Command as Command44 } from "commander";
+import chalk28 from "chalk";
+var d9 = chalk28.dim;
+function typeIcon2(type) {
+  switch (type) {
+    case "task_started":
+      return chalk28.cyan("\u25B6");
+    case "task_completed":
+      return chalk28.green("\u2713");
+    case "member_joined":
+      return chalk28.green("+");
+    case "member_left":
+      return chalk28.red("-");
+    case "session_started":
+      return chalk28.magenta("\u25CF");
+    case "commit":
+      return chalk28.yellow("\u2022");
+    case "note":
+      return chalk28.blue("\u2022");
+    case "review":
+      return chalk28.cyan("\u2022");
+    default:
+      return d9("\xB7");
+  }
+}
+function timeAgo2(ts) {
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 6e4);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+function getAuthToken3(config) {
+  return config.apiKey ?? config.accessToken;
+}
+var activityCommand = new Command44("activity").description("View project activity feed").option("--limit <n>", "Number of entries to show", "20").action(async (opts) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    error(`Cloud config error: ${msg}`);
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
+    return;
+  }
+  if (!isValidUUID(config.projectId)) {
+    error("Invalid project ID in cloud config.");
+    return;
+  }
+  const limit = Math.min(parseInt(opts.limit || "20", 10) || 20, 50);
+  try {
+    const token = getAuthToken3(config);
+    const res = await fetch(`${config.apiUrl}/api/projects/${config.projectId}/activity?limit=${limit}`, {
+      headers: { "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch activity: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const activities = await res.json();
+    console.log("");
+    if (activities.length === 0) {
+      console.log(d9("  No activity yet."));
+      console.log("");
+      return;
+    }
+    console.log(chalk28.bold("  Activity Feed"));
+    console.log("");
+    for (const a of activities) {
+      const icon = typeIcon2(a.type);
+      const who = a.profiles?.username ?? "system";
+      const age = d9(timeAgo2(a.created_at));
+      console.log(`  ${icon} ${chalk28.bold(who)} ${a.message}  ${age}`);
+    }
+    console.log("");
+    console.log(d9(`  ${activities.length} entries shown`));
+    if (activities.length >= limit) {
+      info(`Use --limit <n> to see more (max 50).`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      error(`Failed to connect to vibeteamz: ${msg}`);
+    }
+  }
+});
+
+// src/cloud/commands/members.ts
+import { Command as Command45 } from "commander";
+import chalk29 from "chalk";
+var d10 = chalk29.dim;
+function roleColor(role) {
+  switch (role) {
+    case "owner":
+      return chalk29.yellow;
+    case "admin":
+      return chalk29.cyan;
+    case "member":
+      return chalk29.white;
+    case "viewer":
+      return chalk29.dim;
+    case "pending":
+      return chalk29.dim;
+    default:
+      return chalk29.white;
+  }
+}
+function availIcon(avail) {
+  switch (avail) {
+    case "available":
+      return chalk29.green("\u25CF");
+    case "busy":
+      return chalk29.red("\u25CF");
+    case "looking":
+      return chalk29.yellow("\u25CF");
+    default:
+      return d10("\u25CB");
+  }
+}
+function getAuthToken4(config) {
+  return config.apiKey ?? config.accessToken;
+}
+var membersCommand = new Command45("members").description("List project members").action(async () => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    error(`Cloud config error: ${msg}`);
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
+    return;
+  }
+  if (!isValidUUID(config.projectId)) {
+    error("Invalid project ID in cloud config.");
+    return;
+  }
+  try {
+    const token = getAuthToken4(config);
+    const res = await fetch(`${config.apiUrl}/api/projects/${config.projectId}/members`, {
+      headers: { "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch members: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const members = await res.json();
+    console.log("");
+    if (members.length === 0) {
+      console.log(d10("  No members found."));
+      console.log("");
+      return;
+    }
+    const active = members.filter((m) => m.role !== "pending");
+    const pending = members.filter((m) => m.role === "pending");
+    console.log(chalk29.bold("  Team Members") + d10(` (${active.length})`));
+    console.log("");
+    for (const m of active) {
+      const name = m.profiles?.display_name || m.profiles?.username || m.user_id.slice(0, 8);
+      const username = m.profiles?.username ?? m.user_id.slice(0, 8);
+      const avail = availIcon(m.profiles?.availability ?? null);
+      const role = roleColor(m.role)(m.role.padEnd(8));
+      const isYou = m.user_id === config.userId ? chalk29.dim(" (you)") : "";
+      const nameStr = name === username ? username : `${name} ${d10(`@${username}`)}`;
+      console.log(`  ${avail} ${nameStr.padEnd(28)}${role}${isYou}`);
+    }
+    if (pending.length > 0) {
+      console.log("");
+      console.log(chalk29.yellow("  Pending Requests") + d10(` (${pending.length})`));
+      for (const m of pending) {
+        const name = m.profiles?.display_name || m.profiles?.username || m.user_id.slice(0, 8);
+        console.log(`  ${d10("\u25CB")} ${d10(name)}`);
+      }
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      error(`Failed to connect to vibeteamz: ${msg}`);
+    }
+  }
+});
+
+// src/cloud/commands/project-info.ts
+import { Command as Command46 } from "commander";
+import chalk30 from "chalk";
+var d11 = chalk30.dim;
+function statusColor(status) {
+  switch (status) {
+    case "recruiting":
+      return chalk30.green;
+    case "active":
+      return chalk30.yellow;
+    case "completed":
+      return chalk30.dim;
+    default:
+      return chalk30.white;
+  }
+}
+function getAuthToken5(config) {
+  return config.apiKey ?? config.accessToken;
+}
+var projectInfoCommand = new Command46("project").description("View linked project details").action(async () => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    error(`Cloud config error: ${msg}`);
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+    error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
+    return;
+  }
+  if (!isValidUUID(config.projectId)) {
+    error("Invalid project ID in cloud config.");
+    return;
+  }
+  try {
+    const token = getAuthToken5(config);
+    const res = await fetch(`${config.apiUrl}/api/projects/${config.projectId}`, {
+      headers: { "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch project: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const project = await res.json();
+    console.log("");
+    console.log(chalk30.bold(`  ${project.name}`) + "  " + statusColor(project.status)(project.status));
+    if (project.owner) {
+      const ownerName = project.owner.display_name || project.owner.username;
+      console.log(d11(`  by @${project.owner.username}${ownerName !== project.owner.username ? ` (${ownerName})` : ""}`));
+    }
+    console.log("");
+    if (project.tagline) {
+      console.log(`  ${project.tagline}`);
+      console.log("");
+    }
+    if (project.description) {
+      const desc = project.description.length > 200 ? project.description.slice(0, 197) + "..." : project.description;
+      console.log(d11(`  ${desc}`));
+      console.log("");
+    }
+    const rows = [];
+    rows.push(["Category", project.category]);
+    rows.push(["Max Members", String(project.max_members)]);
+    if (project.repo_url) rows.push(["Repo", project.repo_url]);
+    rows.push(["ID", d11(project.id)]);
+    for (const [label, value] of rows) {
+      console.log(`  ${d11(label.padEnd(14))}${value}`);
+    }
+    if (project.tech_stack.length > 0) {
+      console.log("");
+      console.log(`  ${d11("Tech Stack")}    ${project.tech_stack.map((t) => chalk30.cyan(t)).join(d11(", "))}`);
+    }
+    if (project.roles_needed.length > 0) {
+      console.log(`  ${d11("Looking for")}   ${project.roles_needed.map((r6) => chalk30.yellow(r6)).join(d11(", "))}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      error(`Failed to connect to vibeteamz: ${msg}`);
+    }
+  }
+});
+
+// src/cloud/commands/org.ts
+import { Command as Command47 } from "commander";
+import chalk31 from "chalk";
+var d12 = chalk31.dim;
+function roleColor2(role) {
+  switch (role) {
+    case "owner":
+      return chalk31.yellow;
+    case "admin":
+      return chalk31.cyan;
+    case "member":
+      return chalk31.white;
+    default:
+      return chalk31.white;
+  }
+}
+function getAuthToken6(config) {
+  return config.apiKey ?? config.accessToken;
+}
+async function apiFetch3(config, path13, opts) {
+  const token = getAuthToken6(config);
+  return fetch(`${config.apiUrl}${path13}`, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+      ...opts?.headers ?? {}
+    },
+    signal: AbortSignal.timeout(1e4)
+  });
+}
+var orgCommand = new Command47("org").description("Organization management commands");
+orgCommand.command("list").description("List your organizations").action(async () => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId) {
+    error('Cloud not configured. Run "vf vibeteamz login".');
+    return;
+  }
+  try {
+    const res = await apiFetch3(config, "/api/orgs");
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch orgs: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const orgs = await res.json();
+    console.log("");
+    if (orgs.length === 0) {
+      console.log(d12("  No organizations found."));
+      console.log("");
+      return;
+    }
+    console.log(chalk31.bold("  Organizations") + d12(` (${orgs.length})`));
+    console.log("");
+    for (const org of orgs) {
+      const owner = org.owner?.username ? d12(` @${org.owner.username}`) : "";
+      console.log(`  ${chalk31.bold(org.name)}${owner}`);
+      if (org.description) {
+        console.log(`    ${d12(org.description.slice(0, 60))}`);
+      }
+      console.log(`    ${d12(org.id.slice(0, 8))}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      error("Failed to connect to vibeteamz.");
+    }
+  }
+});
+orgCommand.command("members <org-id>").description("List members of an organization").action(async (orgId) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId) {
+    error('Cloud not configured. Run "vf vibeteamz login".');
+    return;
+  }
+  try {
+    const res = await apiFetch3(config, `/api/orgs/${orgId}/members`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch members: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const members = await res.json();
+    console.log("");
+    if (members.length === 0) {
+      console.log(d12("  No members found."));
+      console.log("");
+      return;
+    }
+    console.log(chalk31.bold("  Org Members") + d12(` (${members.length})`));
+    console.log("");
+    for (const m of members) {
+      const name = m.profile?.display_name || m.profile?.username || m.user_id.slice(0, 8);
+      const username = m.profile?.username ?? m.user_id.slice(0, 8);
+      const role = roleColor2(m.role)(m.role.padEnd(8));
+      const isYou = m.user_id === config.userId ? chalk31.dim(" (you)") : "";
+      console.log(`  ${name.padEnd(24)}${role}  ${d12(`@${username}`)}${isYou}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      error("Failed to connect to vibeteamz.");
+    }
+  }
+});
+orgCommand.command("projects <org-id>").description("List projects in an organization").action(async (orgId) => {
+  let config;
+  try {
+    config = readCloudConfig();
+  } catch {
+    error("Cloud config is corrupted.");
+    return;
+  }
+  if (!(config.accessToken || config.apiKey) || !config.userId) {
+    error('Cloud not configured. Run "vf vibeteamz login".');
+    return;
+  }
+  try {
+    const res = await apiFetch3(config, `/api/orgs/${orgId}/projects`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      error(`Failed to fetch projects: ${data.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const projects = await res.json();
+    console.log("");
+    if (projects.length === 0) {
+      console.log(d12("  No projects in this org."));
+      console.log("");
+      return;
+    }
+    console.log(chalk31.bold("  Org Projects") + d12(` (${projects.length})`));
+    console.log("");
+    for (const p of projects) {
+      const statusFn = p.status === "recruiting" ? chalk31.green : p.status === "active" ? chalk31.yellow : chalk31.dim;
+      console.log(`  ${chalk31.bold(p.name.padEnd(28))}${statusFn(p.status.padEnd(12))}${d12(p.id.slice(0, 8))}`);
+    }
+    console.log("");
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      error("Request timed out. Check your network.");
+    } else {
+      error("Failed to connect to vibeteamz.");
+    }
+  }
+});
 
 // src/cloud/register.ts
 function registerCloud(program2) {
-  const primaryCmd = new Command42("vibeteamz").description("vibeteamz cloud integration commands");
+  const primaryCmd = new Command48("vibeteamz").description("vibeteamz cloud integration commands");
   primaryCmd.addCommand(loginCommand);
   primaryCmd.addCommand(linkCommand);
   primaryCmd.addCommand(unlinkCommand);
@@ -5599,21 +6651,43 @@ function registerCloud(program2) {
   primaryCmd.addCommand(noteCommand2);
   primaryCmd.addCommand(tasksCommand);
   primaryCmd.addCommand(taskCommand);
+  primaryCmd.addCommand(notificationsCommand);
+  primaryCmd.addCommand(activityCommand);
+  primaryCmd.addCommand(membersCommand);
+  primaryCmd.addCommand(projectInfoCommand);
+  primaryCmd.addCommand(orgCommand);
   program2.addCommand(primaryCmd);
-  const aliasCmd = new Command42("cloud").description("Alias for vibeteamz (deprecated)");
+  const vtCmd = new Command48("vt").description("Short alias for vibeteamz");
+  vtCmd.allowUnknownOption(true);
+  vtCmd.allowExcessArguments(true);
+  vtCmd.action((_opts, cmd) => {
+    primaryCmd.parseAsync(["node", "vf-vt", ...cmd.args]);
+  });
+  program2.addCommand(vtCmd);
+  const sayCmd = new Command48("say").description("Send a message to team chat (shortcut for vibeteamz msg)").argument("<message>", "Message to send").option("--to <usernames...>", "Mention users (auto-adds @ prefix)").option("--reply <message-id>", "Reply to a message").action(async (message, opts) => {
+    const args = ["node", "vf-say", message];
+    if (opts.to?.length) {
+      args.push("--to", ...opts.to);
+    }
+    if (opts.reply) {
+      args.push("--reply", opts.reply);
+    }
+    await msgCommand3.parseAsync(args);
+  });
+  program2.addCommand(sayCmd);
+  const aliasCmd = new Command48("cloud").description("Alias for vibeteamz (deprecated)");
   aliasCmd.hidden = true;
   aliasCmd.allowUnknownOption(true);
   aliasCmd.allowExcessArguments(true);
   aliasCmd.action((_opts, cmd) => {
-    const args = cmd.args;
-    primaryCmd.parseAsync(["node", "vf-vibeteamz", ...args]);
+    primaryCmd.parseAsync(["node", "vf-cloud", ...cmd.args]);
   });
   program2.addCommand(aliasCmd);
 }
 
 // src/index.ts
-var program = new Command43();
-program.name("vf").description("Vibe Focus - Focus Guardian for vibe coding sessions").version("0.1.0");
+var program = new Command49();
+program.name("vf").description("Vibe Focus - Focus Guardian for vibe coding sessions").version("0.2.0");
 program.addCommand(initCommand);
 program.addCommand(addCommand);
 program.addCommand(startCommand);
@@ -5637,6 +6711,7 @@ program.addCommand(hookCommand);
 program.addCommand(msgCommand);
 program.addCommand(setupCommand);
 program.addCommand(joinCommand);
+program.addCommand(allCommand);
 register(program);
 registerCloud(program);
 program.action(() => {

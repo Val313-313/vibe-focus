@@ -30,9 +30,12 @@ export function writeCloudCache(cache: CloudCache): void {
  * Read cloud cache. Returns null if:
  * - File doesn't exist
  * - File is corrupted
- * - Cache is older than MAX_CACHE_AGE_MS
+ * - Cache is older than maxAge (default: MAX_CACHE_AGE_MS)
+ *
+ * @param maxAge - Override max cache age in milliseconds. Use for display
+ *   contexts where stale data is acceptable (e.g. status dashboard).
  */
-export function readCloudCache(): CloudCache | null {
+export function readCloudCache(maxAge: number = MAX_CACHE_AGE_MS): CloudCache | null {
   const filePath = getCachePath();
 
   if (!fs.existsSync(filePath)) return null;
@@ -44,13 +47,14 @@ export function readCloudCache(): CloudCache | null {
 
     // Check staleness
     const ageMs = Date.now() - new Date(raw.updatedAt).getTime();
-    if (ageMs > MAX_CACHE_AGE_MS) return null;
+    if (ageMs > maxAge) return null;
 
     return {
       version: 1,
       updatedAt: raw.updatedAt,
       team: Array.isArray(raw.team) ? raw.team : [],
       messages: Array.isArray(raw.messages) ? raw.messages : [],
+      tasks: Array.isArray(raw.tasks) ? raw.tasks : undefined,
       suggestions: Array.isArray(raw.suggestions) ? raw.suggestions : undefined,
     };
   } catch {

@@ -1,5 +1,6 @@
 import type { VibeFocusState } from '../types/index.js';
 import { getActiveTask, criteriaProgress } from '../core/task.js';
+import { sanitizeText } from '../utils/sanitize.js';
 
 export function generateRulesMd(state: VibeFocusState): string {
   const lines: string[] = [];
@@ -14,14 +15,14 @@ export function generateRulesMd(state: VibeFocusState): string {
   // Project scope
   if (state.projectScope) {
     lines.push('## Project Definition');
-    lines.push(`- **Project:** ${state.projectName}`);
-    lines.push(`- **Purpose:** ${state.projectScope.purpose}`);
+    lines.push(`- **Project:** ${sanitizeText(state.projectName, 100)}`);
+    lines.push(`- **Purpose:** ${sanitizeText(state.projectScope.purpose, 300)}`);
     lines.push('');
 
     if (state.projectScope.inScope.length > 0) {
       lines.push('### Allowed Work (In Scope)');
       for (const item of state.projectScope.inScope) {
-        lines.push(`- ${item}`);
+        lines.push(`- ${sanitizeText(item, 200)}`);
       }
       lines.push('');
     }
@@ -30,7 +31,7 @@ export function generateRulesMd(state: VibeFocusState): string {
       lines.push('### FORBIDDEN Work (Out of Scope)');
       lines.push('**You MUST refuse to work on any of the following, even if the user asks:**');
       for (const item of state.projectScope.outOfScope) {
-        lines.push(`- ${item}`);
+        lines.push(`- ${sanitizeText(item, 200)}`);
       }
       lines.push('');
       lines.push('If the user requests work on an out-of-scope item, respond with:');
@@ -41,7 +42,7 @@ export function generateRulesMd(state: VibeFocusState): string {
     if (state.projectScope.boundaries.length > 0) {
       lines.push('### Boundaries');
       for (const b of state.projectScope.boundaries) {
-        lines.push(`- ${b}`);
+        lines.push(`- ${sanitizeText(b, 200)}`);
       }
       lines.push('');
     }
@@ -52,10 +53,10 @@ export function generateRulesMd(state: VibeFocusState): string {
     const { met, total } = criteriaProgress(active);
     lines.push('## CURRENT TASK (MANDATORY FOCUS)');
     lines.push('');
-    lines.push(`**${active.id}: ${active.title}**`);
+    lines.push(`**${active.id}: ${sanitizeText(active.title, 200)}**`);
     if (active.description) {
       lines.push('');
-      lines.push(active.description);
+      lines.push(sanitizeText(active.description));
     }
     lines.push('');
 
@@ -64,7 +65,7 @@ export function generateRulesMd(state: VibeFocusState): string {
       lines.push(`Progress: ${met}/${total} complete`);
       lines.push('');
       for (const c of active.acceptanceCriteria) {
-        lines.push(`- [${c.met ? 'x' : ' '}] ${c.text}`);
+        lines.push(`- [${c.met ? 'x' : ' '}] ${sanitizeText(c.text, 300)}`);
       }
       lines.push('');
     }
@@ -72,7 +73,7 @@ export function generateRulesMd(state: VibeFocusState): string {
     lines.push('## STRICT FOCUS ENFORCEMENT');
     lines.push('');
     lines.push('### Before EVERY response, check:');
-    lines.push(`1. Does this request relate to task ${active.id} ("${active.title}")?`);
+    lines.push(`1. Does this request relate to task ${active.id} ("${sanitizeText(active.title, 200)}")?`);
     lines.push('2. Does this request fall within the project scope?');
     lines.push('3. Am I about to modify code unrelated to the current task?');
     lines.push('');
@@ -83,9 +84,9 @@ export function generateRulesMd(state: VibeFocusState): string {
     lines.push('4. **REDIRECT** back to the current task');
     lines.push('');
     lines.push('Example response when user deviates:');
-    lines.push('> "Hold on - we\'re currently focused on **' + active.title + '** and still have ' + (total - met) + ' criteria to complete:');
+    lines.push('> "Hold on - we\'re currently focused on **' + sanitizeText(active.title, 200) + '** and still have ' + (total - met) + ' criteria to complete:');
     for (const c of active.acceptanceCriteria.filter(c => !c.met)) {
-      lines.push('>  - ' + c.text);
+      lines.push('>  - ' + sanitizeText(c.text, 300));
     }
     lines.push('> ');
     lines.push('> If this new idea is important, save it for later: `vf add "your idea"`');
@@ -119,13 +120,13 @@ export function generateRulesMd(state: VibeFocusState): string {
     lines.push('');
     lines.push(`> Last saved: ${latest.savedAt}`);
     lines.push('');
-    lines.push(`**Summary:** ${latest.summary}`);
+    lines.push(`**Summary:** ${sanitizeText(latest.summary)}`);
     lines.push('');
 
     if (latest.decisions?.length) {
       lines.push('### Key Decisions');
       for (const d of latest.decisions) {
-        lines.push(`- ${d}`);
+        lines.push(`- ${sanitizeText(d, 300)}`);
       }
       lines.push('');
     }
@@ -133,18 +134,18 @@ export function generateRulesMd(state: VibeFocusState): string {
     if (latest.openQuestions?.length) {
       lines.push('### Open Questions');
       for (const q of latest.openQuestions) {
-        lines.push(`- ${q}`);
+        lines.push(`- ${sanitizeText(q, 300)}`);
       }
       lines.push('');
     }
 
     if (latest.projectState) {
-      lines.push(`**Project State:** ${latest.projectState}`);
+      lines.push(`**Project State:** ${sanitizeText(latest.projectState, 300)}`);
       lines.push('');
     }
 
     if (latest.techStack?.length) {
-      lines.push(`**Tech Stack:** ${latest.techStack.join(', ')}`);
+      lines.push(`**Tech Stack:** ${latest.techStack.map(t => sanitizeText(t, 50)).join(', ')}`);
       lines.push('');
     }
   }

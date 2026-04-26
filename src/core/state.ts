@@ -87,7 +87,18 @@ export function initProject(projectName: string): { dir: string; importedCount: 
     throw new Error('Already initialized. Use "vf status" to see current state.');
   }
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, '.gitignore'), 'state.json\nstate.json.tmp\ntasks.json.tmp\nconfig.json\n');
+  fs.writeFileSync(path.join(dir, '.gitignore'), [
+    '# Personal state & credentials - never commit',
+    '*',
+    '# Shared task backlog - safe to commit',
+    '!tasks.json',
+    '# Team coordination - shared via Git',
+    '!team/',
+    '!team/**',
+    '# But ignore local team config',
+    'team/local.json',
+    '',
+  ].join('\n'));
   const state = createEmptyState(projectName);
 
   // Seed from tasks.json if present (collaborator cloned the repo)

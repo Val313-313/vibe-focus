@@ -7,6 +7,7 @@ import { elapsedMinutes, formatDuration, getTodayStart } from '../utils/time.js'
 import { detectChanges, stampWorkerMeta } from '../core/sync.js';
 import { printChangeBanner } from '../ui/output.js';
 import { isCloudLinked, readCloudConfig } from '../cloud/core/cloud-state.js';
+import { readCloudCache } from '../cloud/core/cloud-cache.js';
 
 const W = 62; // dashboard width
 
@@ -83,7 +84,7 @@ export const statusCommand = new Command('status')
   .description('Show the focus dashboard')
   .option('--json', 'Output as JSON')
   .option('--worker <name>', 'Identity for cross-tab sync')
-  .action((opts) => {
+  .action(async (opts) => {
     const state = readState();
     const worker = resolveWorker(opts);
     const workerKey = worker ?? '__default__';
@@ -289,19 +290,125 @@ export const statusCommand = new Command('status')
       ));
     }
 
-    // ── Cloud Section ──
-    lines.push(sectionHeader('CLOUD', W));
+    // ── vibeteamz Section ──
+    lines.push(sectionHeader('VIBETEAMZ', W));
     lines.push(boxEmpty(W));
 
     try {
       if (isCloudLinked()) {
         const cloudCfg = readCloudConfig();
-        const projectLabel = cloudCfg.projectId ? cloudCfg.projectId.slice(0, 8) + '...' : '?';
-        lines.push(boxRow(
-          d('   STATUS  ') + gB('♥') + g(' connected') +
-          d('   PROJECT ') + c(projectLabel),
-          W
-        ));
+
+        // Show cached team + suggestions (instant, no API call)
+        const cache = readCloudCache(60 * 60 * 1000);
+        if (cache) {
+          // Team presence
+          if (cache.team && cache.team.length > 0) {
+            const onlineTeam = cache.team.filter(t => {
+              const ageMs = Date.now() - new Date(t.last_heartbeat).getTime();
+              return ageMs < 60 * 60 * 1000;
+            });
+            if (onlineTeam.length > 0) {
+              const teamNames = onlineTeam.map(t => {
+                const name = t.profiles?.username ?? t.user_id.slice(0, 8);
+                const icon = t.status === 'active' ? gB('●') : y('◐');
+                return icon + ' ' + c(name);
+              }).join(d('  '));
+              lines.push(boxRow(d('   TEAM    ') + teamNames, W));
+              lines.push(boxEmpty(W));
+            }
+          }
+        }
+
+        // Fetch live tasks + milestones via vibeteamz API (uses API key, never expires)
+        type StatusTaskRow = { id: string; title: string; status: string; milestone_id: string | null; assigned_to: string | null };
+        type StatusMsRow = { id: string; title: string; status: string };
+
+        const pid = cloudCfg.projectId;
+        const bearerToken = cloudCfg.apiKey ?? cloudCfg.accessToken;
+        if (pid && bearerToken) {
+          const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${bearerToken}` };
+          const baseUrl = cloudCfg.apiUrl;
+
+          let allTasks: StatusTaskRow[] = [];
+          let milestones: StatusMsRow[] = [];
+
+          try {
+            const [tasksResp, msResp] = await Promise.all([
+              fetch(`${baseUrl}/api/projects/${pid}/tasks`, { headers, signal: AbortSignal.timeout(8000) }),
+              fetch(`${baseUrl}/api/projects/${pid}/milestones`, { headers, signal: AbortSignal.timeout(8000) }),
+            ]);
+            if (tasksResp.ok) allTasks = await tasksResp.json() as StatusTaskRow[];
+            if (msResp.ok) {
+              const msBody = await msResp.json();
+              milestones = Array.isArray(msBody) ? msBody : (msBody.milestones ?? []);
+            }
+          } catch {
+            // Network error — show fallback
+          }
+
+          if (allTasks.length > 0) {
+            const msMap = new Map<string, StatusMsRow>();
+            for (const ms of milestones) msMap.set(ms.id, ms);
+
+            // Group tasks by milestone
+            const byMs = new Map<string | null, StatusTaskRow[]>();
+            for (const t of allTasks) {
+              const key = t.milestone_id;
+              if (!byMs.has(key)) byMs.set(key, []);
+              byMs.get(key)!.push(t);
+            }
+
+            // Milestones first, then backlog
+            const msKeys = [...byMs.keys()].sort((a, b) => {
+              if (a === null) return 1;
+              if (b === null) return -1;
+              return 0;
+            });
+
+            for (const msId of msKeys) {
+              const group = byMs.get(msId)!;
+              const doneN = group.filter(t => t.status === 'done').length;
+              const totalN = group.length;
+              const pct = totalN > 0 ? Math.round((doneN / totalN) * 100) : 0;
+              const msTitle = msId ? (msMap.get(msId)?.title ?? msId.slice(0, 8)) : 'Backlog';
+              const msIcon = msId ? y('◉') : d('≡');
+              const barW = 12;
+              const filled = totalN > 0 ? Math.round((doneN / totalN) * barW) : 0;
+              const bar = y('█'.repeat(filled)) + d('░'.repeat(barW - filled));
+
+              lines.push(boxRow(
+                '   ' + msIcon + ' ' + b(msTitle.length > 20 ? msTitle.slice(0, 17) + '...' : msTitle).padEnd(20) + ' ' + bar + ' ' + d(`${doneN}/${totalN}`) + ' ' + (pct > 0 ? y(`${pct}%`) : d('0%')),
+                W
+              ));
+
+              // Show open tasks under each milestone
+              const openTasks = group.filter(t => t.status !== 'done');
+              for (const t of openTasks) {
+                const icon = t.status === 'in_progress' ? c('◐') : '○';
+                const title = t.title.length > 32 ? t.title.slice(0, 29) + '...' : t.title;
+                const owner = t.assigned_to === cloudCfg.userId ? d(' @you') : '';
+                lines.push(boxRow('      ' + icon + ' ' + title + owner, W));
+              }
+            }
+
+            lines.push(boxEmpty(W));
+            const totalAll = allTasks.length;
+            const totalDone = allTasks.filter(t => t.status === 'done').length;
+            lines.push(boxRow(d(`   ${totalDone}/${totalAll} tasks done · ${milestones.length} milestone${milestones.length !== 1 ? 's' : ''}`), W));
+          } else {
+            lines.push(boxRow(d('   No tasks yet.'), W));
+          }
+        }
+
+        // Suggestions from cache
+        if (cache?.suggestions && cache.suggestions.length > 0) {
+          lines.push(boxEmpty(W));
+          for (const s of cache.suggestions.slice(0, 2)) {
+            const urgIcon = s.urgency === 'high' ? r('!') : s.urgency === 'medium' ? y('~') : d('·');
+            const msg = s.message.length > 45 ? s.message.slice(0, 42) + '...' : s.message;
+            lines.push(boxRow('   ' + urgIcon + ' ' + d(msg), W));
+          }
+        }
       } else {
         lines.push(boxRow(
           d('   STATUS  ') + y('♥') + d(' not linked') +
@@ -310,7 +417,7 @@ export const statusCommand = new Command('status')
         ));
       }
     } catch {
-      lines.push(boxRow(d('   STATUS  ') + d('♥ unknown'), W));
+      lines.push(boxRow(d('   ') + d('♥ offline'), W));
     }
 
     // ── Recent Log ──

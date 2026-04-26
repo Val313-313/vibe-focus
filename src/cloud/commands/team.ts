@@ -60,8 +60,8 @@ export const teamCommand = new Command('team')
       return;
     }
 
-    if (!config.accessToken || !config.userId || !config.projectId) {
-      error('Cloud not configured. Run "vf cloud login" then "vf cloud link <id>".');
+    if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+      error('Cloud not configured. Run "vf vibeteamz login" then "vf vibeteamz link <id>".');
       return;
     }
 

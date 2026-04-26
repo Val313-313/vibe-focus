@@ -199,6 +199,25 @@ async function resolveTaskId(config: { apiUrl: string; apiKey: string | null; ac
   }
 }
 
+/** Resolve a short milestone ID prefix to full UUID */
+async function resolveMilestoneId(config: { apiUrl: string; apiKey: string | null; accessToken: string | null; projectId: string | null }, shortId: string): Promise<string | null> {
+  if (shortId.length >= 36) return shortId;
+  try {
+    const res = await apiFetch(config, `/api/projects/${config.projectId}/milestones`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    const milestones = Array.isArray(body) ? body : (body.milestones ?? []);
+    const match = milestones.find((m: { id: string }) => m.id.startsWith(shortId));
+    if (!match) {
+      error(`No milestone found starting with "${shortId}". Run "vf vibeteamz milestones" to see IDs.`);
+      return null;
+    }
+    return match.id;
+  } catch {
+    return null;
+  }
+}
+
 // ── vf vibeteamz task (subcommands) ─────────────────────────────────────
 
 export const taskCommand = new Command('task')
@@ -342,11 +361,18 @@ taskCommand
     }
 
     try {
+      // Resolve short milestone ID if provided
+      let milestoneId: string | null = null;
+      if (opts.milestone) {
+        milestoneId = await resolveMilestoneId(config, opts.milestone);
+        if (!milestoneId) return;
+      }
+
       const res = await apiFetch(config, `/api/projects/${config.projectId}/tasks`, {
         method: 'POST',
         body: JSON.stringify({
           title,
-          milestone_id: opts.milestone || null,
+          milestone_id: milestoneId,
           assigned_to: opts.assign || null,
         }),
       });
@@ -360,5 +386,112 @@ taskCommand
       }
     } catch {
       error('Failed to connect to vibeteamz.');
+    }
+  });
+
+// vf vibeteamz task detail <id>
+type TaskDetail = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: 'todo' | 'in_progress' | 'done';
+  priority: string;
+  milestone_id: string | null;
+  assigned_to: string | null;
+  due_date: string | null;
+  created_at: string;
+  assignee: { username: string; display_name: string | null } | null;
+};
+
+taskCommand
+  .command('detail <id>')
+  .description('View full task details including description')
+  .action(async (taskId: string) => {
+    let config;
+    try {
+      config = readCloudConfig();
+    } catch {
+      error('Cloud config is corrupted.');
+      return;
+    }
+
+    if (!(config.accessToken || config.apiKey) || !config.userId || !config.projectId) {
+      error('Cloud not configured.');
+      return;
+    }
+
+    const fullId = await resolveTaskId(config, taskId);
+    if (!fullId) return;
+
+    try {
+      // Fetch all tasks to find the one we need (no single-task GET endpoint)
+      const [tasksRes, msRes] = await Promise.all([
+        apiFetch(config, `/api/projects/${config.projectId}/tasks`),
+        apiFetch(config, `/api/projects/${config.projectId}/milestones`),
+      ]);
+
+      if (!tasksRes.ok) {
+        error('Failed to fetch task details.');
+        return;
+      }
+
+      const tasks = await tasksRes.json() as TaskDetail[];
+      const task = tasks.find(t => t.id === fullId);
+
+      if (!task) {
+        error(`Task ${taskId} not found.`);
+        return;
+      }
+
+      // Get milestone name
+      let milestoneName: string | null = null;
+      if (task.milestone_id && msRes.ok) {
+        const msBody = await msRes.json();
+        const milestones = Array.isArray(msBody) ? msBody : (msBody.milestones ?? []);
+        const ms = milestones.find((m: { id: string; title: string }) => m.id === task.milestone_id);
+        milestoneName = ms?.title ?? null;
+      }
+
+      console.log('');
+      console.log(`  ${statusIcon(task.status)} ${chalk.bold(task.title)}`);
+      console.log('');
+
+      // Metadata rows
+      const rows: Array<[string, string]> = [];
+      rows.push(['Status', statusLabel(task.status)]);
+      rows.push(['Priority', task.priority === 'normal' ? d('normal') : chalk.bold(task.priority)]);
+      if (task.assignee) {
+        rows.push(['Assigned to', `@${task.assignee.username}${task.assignee.display_name ? ` (${task.assignee.display_name})` : ''}`]);
+      } else {
+        rows.push(['Assigned to', d('unassigned')]);
+      }
+      if (milestoneName) {
+        rows.push(['Milestone', milestoneName]);
+      }
+      if (task.due_date) {
+        const overdue = new Date(task.due_date) < new Date() && task.status !== 'done';
+        rows.push(['Due', overdue ? chalk.red(task.due_date) : task.due_date]);
+      }
+      rows.push(['ID', d(task.id)]);
+
+      for (const [label, value] of rows) {
+        console.log(`  ${d(label.padEnd(14))}${value}`);
+      }
+
+      if (task.description) {
+        console.log('');
+        console.log(d('  Description'));
+        for (const line of task.description.split('\n')) {
+          console.log(`  ${line}`);
+        }
+      }
+
+      console.log('');
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === 'TimeoutError') {
+        error('Request timed out.');
+      } else {
+        error('Failed to connect to vibeteamz.');
+      }
     }
   });
