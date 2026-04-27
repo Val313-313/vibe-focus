@@ -58,7 +58,6 @@ your AI agent didn't stop you. it did exactly what you asked. every single time.
 
 ```bash
 npm install -g github:Val313-313/vibe-focus
-# or: pnpm add -g github:Val313-313/vibe-focus
 ```
 
 no npm registry needed. installs directly from GitHub. after this, `vf` works in every project — just run `vf init` to set up each one.
