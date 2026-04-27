@@ -311,6 +311,7 @@ powers the built-in team and vibeteamz cloud integrations. publish your own exte
 | `vf scope` | Define/view project scope |
 | `vf scope --rules` | Write rules for AI agent |
 | `vf note "idea"` | Park an idea without losing focus |
+| `vf note --list` | Show parked notes (parking lot) |
 | `vf note --promote <id>` | Promote note to task |
 | `vf abandon` | Abandon task (score penalty) |
 
@@ -323,12 +324,14 @@ powers the built-in team and vibeteamz cloud integrations. publish your own exte
 | `vf superflow --on` | Auto-approve until ALL tasks done |
 | `vf context "summary"` | Save session context |
 | `vf context --show` | Show last saved context |
+| `vf context --list` | List all saved session contexts |
+| `vf context --clear` | Clear all saved contexts |
 | `vf prompt` | Generate focused prompt for AI agent |
 | `vf history` | Focus history sparkline |
 | `vf history -n 30` | Last 30 days of history |
 | `vf history --json` | Export history as JSON |
 
-### team & cloud
+### team (local)
 
 | Command | What it does |
 |---------|-------------|
@@ -336,14 +339,51 @@ powers the built-in team and vibeteamz cloud integrations. publish your own exte
 | `vf team status` | Show team members and their focus state |
 | `vf team sync` | Sync team presence files via Git |
 | `vf team who <path>` | Check who is working on a file |
+| `vf team offline` | Mark yourself as offline |
 | `vf team msg "text"` | Send or read team messages |
+| `vf team discord [url]` | Configure Discord webhook for notifications |
 | `vf msg "text"` | Send a message to other tabs/workers |
-| `vf say "text"` | Send a message to vibeteamz team chat |
-| `vf vibeteamz login` | Authenticate with vibeteamz cloud |
-| `vf vibeteamz link <id>` | Link project to vibeteamz |
+
+### vibeteamz cloud
+
+| Command | What it does |
+|---------|-------------|
+| `vf vibeteamz login` | Authenticate with vibeteamz via Supabase |
+| `vf vibeteamz link <id>` | Link project to a vibeteamz project |
+| `vf vibeteamz unlink` | Remove vibeteamz project link (stops heartbeats) |
 | `vf vibeteamz status` | Show cloud connection status |
+| `vf vibeteamz team` | Show who is online in your project |
 | `vf vibeteamz pull` | Show full project dashboard from cloud |
-| `vf vibeteamz tasks` | List project tasks from vibeteamz |
+| `vf vibeteamz push "text"` | Post a message to project team chat |
+| `vf vibeteamz msg "text"` | Send a message to project team chat |
+| `vf vibeteamz note "text"` | Post a note to project activity feed |
+| `vf say "text"` | Shortcut for vibeteamz msg |
+
+### vibeteamz tasks & milestones
+
+| Command | What it does |
+|---------|-------------|
+| `vf vibeteamz tasks` | List project tasks |
+| `vf vibeteamz task create "title"` | Create a new task |
+| `vf vibeteamz task claim <id>` | Assign a task to yourself |
+| `vf vibeteamz task start <id>` | Start a task (set to in_progress) |
+| `vf vibeteamz task done <id>` | Complete a task |
+| `vf vibeteamz task detail <id>` | View full task details |
+| `vf vibeteamz milestone "title"` | Create a project milestone |
+| `vf vibeteamz milestones` | List milestones with progress |
+
+### vibeteamz info & activity
+
+| Command | What it does |
+|---------|-------------|
+| `vf vibeteamz notifications` | List your notifications |
+| `vf vibeteamz activity` | View project activity feed |
+| `vf vibeteamz members` | List project members |
+| `vf vibeteamz project` | View linked project details |
+| `vf vibeteamz org list` | List your organizations |
+| `vf vibeteamz org members <id>` | List members of an organization |
+| `vf vibeteamz org projects <id>` | List projects in an organization |
+| `vf vt` | Short alias for vibeteamz |
 
 ### advanced
 
